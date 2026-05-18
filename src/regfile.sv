@@ -13,7 +13,7 @@ module regfile (
     input logic [4:0] address3
 );
 
-//32 bit register. 32 of them. addressed with 5 bits
+//32 bit register. Each addressed with 5 bits
 logic [31:0] registers [0:31];
 
 always_ff @(posedge clk) begin

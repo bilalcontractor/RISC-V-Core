@@ -1,5 +1,6 @@
 module memory #(
-    parameter WORDS = 64
+    parameter WORDS = 64,
+    parameter mem_init = ""
 ) (
     input logic clk,
     input logic [31:0] address,
@@ -13,6 +14,10 @@ module memory #(
 //array of length WORDS, each index 32 bit vector
 //essentially a 2D array
 logic [31:0] mem [0:WORDS - 1]; 
+
+initial begin 
+    $readmemh(mem_init, mem); //load memmory for simulation
+end
 
 always_ff @(posedge clk) begin
     //reset logic
