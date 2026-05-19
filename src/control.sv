@@ -14,12 +14,19 @@ module control (
 logic [1:0] alu_op;
 always_comb begin
     case (op)
-        //LW
-        7'b0000011: begin //opcode for load 
+        //I type(lw)
+        7'b0000011 : begin //opcode for load 
             reg_write = 1'b1; //writing to a register (the data we load)
             imm_source = 2'b00; //tell signext to use I-type formatting
             mem_write = 1'b0; //not writing to memory
             alu_op = 2'b00; //used in second ALU decoder block
+        end
+        //S type(sw)
+        7'b0100011 : begin //opcode
+            reg_write = 1'b0; //not writing to register
+            imm_source = 2'b01; //tell signext to use S-type formatting
+            mem_write = 1'b1; //writing to memory
+            alu_op = 2'b00; //used for ALU, same as I type
         end
         default: begin
             reg_write = 1'b0;

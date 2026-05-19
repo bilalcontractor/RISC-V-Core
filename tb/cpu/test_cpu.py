@@ -59,13 +59,26 @@ async def cpu_insrt_test(dut):
 
     await cpu_reset(dut)
 
+    print("\n\nTESTING LW\n\n")
+
     # The first instruction for the test in imem.hex load the data from
     # dmem @ adress 0x00000008 that happens to be 0xDEADBEEF into register x18
 
     # Wait a clock cycle for the instruction to execute
     await RisingEdge(dut.clk)
 
-    print(binary_to_hex(dut.regfile.registers[18].value))
-
     # Check the value of reg x18
     assert binary_to_hex(dut.regfile.registers[18].value) == "DEADBEEF"
+
+    print("\n\nTESTING SW\n\n")
+    test_address = int(0xC / 4)
+    # The second instruction for the test in imem.hex stores the data from
+    # x18 (that happens to be 0xDEADBEEF from the previous LW test) @ adress 0x0000000C
+
+    # First, let's check the inital value
+    assert binary_to_hex(dut.data_memory.mem[test_address].value) == "B3B3B3B3"
+
+    # Wait a clock cycle for the instruction to execute
+    await RisingEdge(dut.clk)
+    # Check the value of mem[0xC]
+    assert binary_to_hex(dut.data_memory.mem[test_address].value) == "DEADBEEF"

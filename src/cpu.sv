@@ -125,10 +125,11 @@ logic [31:0] mem_read;
 memory #(
     .mem_init("./test_dmemory.hex")
 ) data_memory (
+    //Inputs
     .clk(clk),
     .address(alu_result),
-    .write_data(32'b0),
-    .write_enable(1'b0),
+    .write_data(read_reg2),
+    .write_enable(mem_write),
     .rst_n(1'b1),
     //Output
     .read_data(mem_read)
