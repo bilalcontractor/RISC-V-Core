@@ -82,3 +82,33 @@ async def cpu_insrt_test(dut):
     await RisingEdge(dut.clk)
     # Check the value of mem[0xC]
     assert binary_to_hex(dut.data_memory.mem[test_address].value) == "DEADBEEF"
+
+    # ADD TEST
+    # lw x19 0x10(x0) (this memory spot contains 0x00000AAA)
+    # add x20 x18 x19
+
+    # Expected result of x18 + x19
+    expected_result = (0xDEADBEEF + 0x00000AAA) & 0xFFFFFFFF
+    await RisingEdge(dut.clk) # lw x19 0x10(x0)
+    assert binary_to_hex(dut.regfile.registers[19].value) == "00000AAA"
+    await RisingEdge(dut.clk) # add x20 x18 x19
+    assert binary_to_hex(dut.regfile.registers[20].value) == hex(expected_result)[2:].upper()
+
+    # AND TEST
+    # and x21 x18 x20 (result shall be 0xDEAD8889)
+    expected_result = expected_result & 0xDEADBEEF
+    await RisingEdge(dut.clk) # and x21 x18 x20
+    assert binary_to_hex(dut.regfile.registers[21].value) == "DEAD8889"
+    
+    # OR TEST
+    # lw x5 0x14(x0) | x5  <= 125F552D
+    # lw x6 0x18(x0) | x6  <= 7F4FD46A
+    # or x7 x5 x6    | x7  <= 7F5FD56F
+    print("\n\nTESTING OR\n\n")
+    
+    await RisingEdge(dut.clk) # lw x5 0x14(x0) | x5  <= 125F552D
+    assert binary_to_hex(dut.regfile.registers[5].value) == "125F552D"
+    await RisingEdge(dut.clk) # lw x6 0x18(x0) | x6  <= 7F4FD46A
+    assert binary_to_hex(dut.regfile.registers[6].value) == "7F4FD46A"
+    await RisingEdge(dut.clk) # or x7 x5 x6    | x7  <= 7F5FD56F
+    assert binary_to_hex(dut.regfile.registers[7].value) == "7F5FD56F"

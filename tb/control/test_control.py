@@ -40,3 +40,49 @@ async def sw_control_test(dut):
     assert dut.imm_source.value == "01"
     assert dut.mem_write.value == "1"
     assert dut.reg_write.value == "0"
+
+@cocotb.test()
+async def add_control_test(dut):
+    # TEST CONTROL SIGNALS FOR ADD
+    await Timer(10, units="ns")
+    dut.op.value = 0b0110011 # R-TYPE
+    # F3 now important for R type ADD instruction
+    dut.func3.value = 0b000
+    await Timer(1, units="ns")
+    assert dut.alu_control.value == "000"
+    assert dut.mem_write.value == "0"
+    assert dut.reg_write.value == "1"
+    # Datapath mux sources
+    assert dut.alu_source.value == "0"
+    assert dut.write_back_source.value == "0"
+    
+@cocotb.test()
+async def and_control_test(dut):
+    await set_unknown(dut)
+    # TEST CONTROL SIGNALS FOR AND
+    await Timer(10, units="ns")
+    dut.op.value = 0b0110011 # R-TYPE
+    # F3 again important
+    dut.func3.value = 0b111
+    await Timer(1, units="ns")
+    assert dut.alu_control.value == "010"
+    assert dut.mem_write.value == "0"
+    assert dut.reg_write.value == "1"
+    # Datapath mux sources
+    assert dut.alu_source.value == "0"
+    assert dut.write_back_source.value == "0"
+    
+@cocotb.test()
+async def or_control_test(dut):
+    await set_unknown(dut)
+    # TEST CONTROL SIGNALS FOR OR
+    await Timer(10, units="ns")
+    dut.op.value = 0b0110011 
+    dut.func3.value = 0b110
+    await Timer(1, units="ns")
+    # only thing that changes comp to add / and
+    assert dut.alu_control.value == "011"
+    assert dut.mem_write.value == "0"
+    assert dut.reg_write.value == "1"
+    assert dut.alu_source.value == "0"
+    assert dut.write_back_source.value == "0"
