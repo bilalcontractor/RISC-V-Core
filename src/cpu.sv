@@ -47,6 +47,9 @@ logic [2:0] alu_control;
 logic [1:0] imm_source;
 logic mem_write;
 logic reg_write;
+//out muxes
+logic alu_source;
+logic write_back_source;
 
 control control(
     .op(op),
@@ -57,7 +60,10 @@ control control(
     .alu_control(alu_control),
     .imm_source(imm_source),
     .mem_write(mem_write),
-    .reg_write(reg_write)
+    .reg_write(reg_write),
+    //Muxes out
+    .alu_source(alu_source),
+    .write_back_source(write_back_source)
 );
 
 //Register file
@@ -72,9 +78,12 @@ logic [31:0] read_reg1;
 logic [31:0] read_reg2;
 
 
-logic [31:0] write_back;
+logic [31:0] write_back_data;
 always_comb begin
-    write_back = mem_read;
+    case (write_back_source) 
+        1'b1: write_back_data = mem_read;
+        default: write_back_data = alu_result;
+    endcase
 end
 
 regfile regfile(
@@ -88,7 +97,7 @@ regfile regfile(
     .read_data2(read_reg2),
     //Write In
     .write_enable(reg_write),
-    .write_data(write_back),
+    .write_data(write_back_data),
     .address3(destination)
 );
 
@@ -108,7 +117,10 @@ logic [31:0] alu_result;
 logic [31:0] alu_source2;
 
 always_comb begin
-    alu_source2 = immediate;
+    case (alu_source)
+        1'b1: alu_source2 = immediate;
+        default: alu_source2 = read_reg2;
+    endcase
 end
 
 alu alu(
