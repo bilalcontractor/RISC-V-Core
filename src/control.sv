@@ -16,7 +16,7 @@ module control (
 //Main Decoder
 logic [1:0] alu_op;
 logic branch;          //static: this instruction is a branch type
-logic jump;            //static: unconditional jump (jal/jalr) - not yet implemented
+logic jump;            //static: unconditional jump (jal)
 logic assert_branch;   //dynamic: the branch condition currently holds
 always_comb begin
     //defaults so every signal is driven on every path (no latches)
@@ -36,6 +36,7 @@ always_comb begin
             alu_source = 1'b1; //immediate, for address calc
             write_back_source = 1'b1; //mem_read, the loaded data
             branch = 1'b0;
+            jump = 1'b0;
         end
         //S type(sw)
         7'b0100011 : begin //opcode
@@ -45,6 +46,7 @@ always_comb begin
             alu_op = 2'b00; //used for ALU, same as I type
             alu_source = 1'b1; //immediate, for address calc
             branch = 1'b0;
+            jump = 1'b0;
         end
         //R type. Note no immediate
         7'b0110011 : begin
@@ -54,8 +56,9 @@ always_comb begin
             alu_source = 1'b0; //reg2
             write_back_source = 1'b0; //alu_result
             branch = 1'b0;
+            jump = 1'b0;
         end
-        //B type
+        //B type(beq)
         7'b1100011: begin
             reg_write = 1'b0; //not writing to register
             imm_source = 2'b10;
@@ -63,7 +66,17 @@ always_comb begin
             mem_write = 1'b0;
             alu_op = 2'b01;
             branch = 1'b1; //We will have the possibility of branching
-        end 
+            jump = 1'b0;
+        end
+        //J type(jal)
+        7'b1101111: begin
+            reg_write = 1'b1; 
+            imm_source = 2'b11;
+            mem_write = 1'b0;
+            write_back_source = 2'b10; //pc + 4
+            branch = 1'b0;
+            jump = 1'b1; //jump flag on
+        end
         default: begin
             reg_write = 1'b0;
             imm_source = 2'b00;
