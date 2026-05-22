@@ -2,7 +2,6 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 import random
-import numpy as np
 
 @cocotb.test()
 async def random_write_read_test(dut):
@@ -44,7 +43,7 @@ async def random_write_read_test(dut):
         # perform a random write
         dut.address3.value = address3
         dut.write_enable.value = 1
-        dut.write_data = write_value
+        dut.write_data.value = write_value
         await RisingEdge(dut.clk)
         dut.write_enable.value = 0
         theorical_regs[address3] = write_value
@@ -54,7 +53,7 @@ async def random_write_read_test(dut):
     await Timer(1, unit="ns")
     dut.address3.value = 0
     dut.write_enable.value = 1
-    dut.write_data = 0xAEAEAEAE
+    dut.write_data.value = 0xAEAEAEAE
     await RisingEdge(dut.clk)
     dut.write_enable.value = 0
     theorical_regs[address3] = 0
@@ -65,4 +64,3 @@ async def random_write_read_test(dut):
     print(dut.read_data1.value)
     assert int(dut.read_data1.value) == 0
 
-    print("Random write/read test completed successfully.")

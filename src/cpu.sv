@@ -3,12 +3,15 @@ module cpu(
     input logic rst_n
 );
 
-//Counter
+//Program counter(pc)
 logic [31:0] pc;
 logic [31:0] pc_next;
 
 always_comb begin
-    pc_next = pc + 4;
+    case(pc_source) 
+        1'b1: pc_next = pc + immediate; //the pc switching if B type instruction
+        default: pc_next = pc + 4;
+    endcase
 end
 
 always_ff @(posedge clk) begin
@@ -51,6 +54,8 @@ logic reg_write;
 logic alu_source;
 logic write_back_source;
 
+logic pc_source;
+
 control control(
     .op(op),
     .func3(func3),
@@ -63,7 +68,9 @@ control control(
     .reg_write(reg_write),
     //Muxes out
     .alu_source(alu_source),
-    .write_back_source(write_back_source)
+    .write_back_source(write_back_source),
+
+    .pc_source(pc_source)
 );
 
 //Register file

@@ -55,3 +55,19 @@ async def zero_test(dut):
     print(int(dut.alu_result.value))
     assert int(dut.zero.value) == 1
     assert int(dut.alu_result.value) == 0
+    
+@cocotb.test()
+async def sub_test(dut):
+    await Timer(1, units="ns")
+    dut.alu_control.value = 0b001
+    for _ in range(1000):
+        src1 = random.randint(0,0xFFFFFFFF)
+        src2 = random.randint(0,0xFFFFFFFF)
+        dut.src1.value = src1
+        dut.src2.value = src2
+        expected = (src1 - src2) & 0xFFFFFFFF
+
+        await Timer(1, units="ns")
+
+        assert str(dut.alu_result.value) == bin(expected)[2:].zfill(32)
+        assert int(str(dut.alu_result.value),2) == expected
