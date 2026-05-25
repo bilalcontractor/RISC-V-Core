@@ -78,6 +78,17 @@ always_comb begin
             branch = 1'b0;
             jump = 1'b1; //jump flag on
         end
+        //ALU I type(addi) 
+        7'b0010011: begin
+            reg_write = 1'b1; //writing to register
+            imm_source = 2'b00; //I type formatting 
+            alu_source = 1'b1; //Immediate is the 2nd ALU operand
+            mem_write = 1'b0; //not touching memory
+            alu_op = 2'b10;
+            write_back_source = 2'b00; //not a memory read, not writing
+            branch = 1'b0;
+            jump = 1'b0;
+        end
         default: begin
             reg_write = 1'b0;
             imm_source = 2'b00;
