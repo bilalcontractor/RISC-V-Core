@@ -18,7 +18,7 @@ always_comb begin
         // For J-types
         2'b11 : immediate = {{12{raw_src[24]}}, raw_src[12:5], raw_src[13],
             raw_src[23:14], 1'b0};
-        default: immediate = 12'b0;
+        default: immediate = 32'b0;
     endcase
 end
     

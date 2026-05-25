@@ -9,7 +9,7 @@ module control (
     output logic mem_write,
     output logic reg_write,
     output logic alu_source,
-    output logic write_back_source,
+    output logic [1:0] write_back_source,
     output logic pc_source
 ); 
 
@@ -25,7 +25,8 @@ always_comb begin
     mem_write = 1'b0;
     alu_op = 2'b00;
     alu_source = 1'b0; //reg2
-    write_back_source = 1'b0; //alu_result
+    write_back_source = 2'b00; //alu_result
+    jump = 1'b0;
     case (op)
         //I type(lw)
         7'b0000011 : begin //opcode for load
@@ -34,7 +35,7 @@ always_comb begin
             mem_write = 1'b0; //not writing to memory
             alu_op = 2'b00; //used in second ALU decoder block
             alu_source = 1'b1; //immediate, for address calc
-            write_back_source = 1'b1; //mem_read, the loaded data
+            write_back_source = 2'b01; //mem_read, the loaded data
             branch = 1'b0;
             jump = 1'b0;
         end
@@ -54,7 +55,7 @@ always_comb begin
             mem_write = 1'b0; //not writing to memory
             alu_op = 2'b10;
             alu_source = 1'b0; //reg2
-            write_back_source = 1'b0; //alu_result
+            write_back_source = 2'b00; //alu_result
             branch = 1'b0;
             jump = 1'b0;
         end
@@ -117,9 +118,6 @@ always_comb begin
         default: assert_branch = 1'b0;
     endcase
 end
-
-//No jump instructions yet
-assign jump = 1'b0;
 
 //Redirect the PC only on a real branch whose condition holds, or on a jump
 assign pc_source = (assert_branch & branch) | jump;

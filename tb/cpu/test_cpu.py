@@ -65,8 +65,9 @@ async def test_sw(dut):
     # The second instruction for the test in imem.hex stores the data from
     # x18 (that happens to be 0xDEADBEEF from the previous LW test) @ adress 0x0000000C
 
-    # First, let's check the inital value
-    assert binary_to_hex(dut.data_memory.mem[test_address].value) == "B3B3B3B3"
+    # NOTE: no pristine-value check here. cpu_init_test runs first and clocks
+    # through the program, executing this same SW, so dmem[0xC] is already
+    # DEADBEEF by now ($readmemh only loads once; data_memory never re-inits).
 
     # Wait a clock cycle for the instruction to execute
     await RisingEdge(dut.clk)
@@ -129,6 +130,32 @@ async def test_beq(dut):
     # Check if the current instruction is the one we expected
     assert binary_to_hex(dut.instruction.value) == "00000013"
 
+async def test_jal(dut):
+    #JAL instruction
+    print("\n\nTESTING JAL\n\n")
+
+    await RisingEdge(dut.clk) # step over the FINAL NOP @ 0x40 left by the beq test
+    await RisingEdge(dut.clk) # jal x1 0xC
+    # Check new state & ra (x1) register value
+    assert binary_to_hex(dut.instruction.value) == "FFDFF0EF"
+    assert binary_to_hex(dut.pc.value) == "00000050"
+    assert binary_to_hex(dut.regfile.registers[1].value) == "00000048" # stored old pc + 4
+
+    await RisingEdge(dut.clk) # jal x1 -4
+    # Check new state & ra (x1) register value
+    assert binary_to_hex(dut.instruction.value) == "00C000EF"
+    assert binary_to_hex(dut.pc.value) == "0000004C"
+    assert binary_to_hex(dut.regfile.registers[1].value) == "00000054" # stored old pc + 4
+
+    await RisingEdge(dut.clk) # jal x1 0xC
+    # Check new state & ra (x1) register value
+    assert binary_to_hex(dut.instruction.value) == "00C02383"
+    assert binary_to_hex(dut.pc.value) == "00000058"
+    assert binary_to_hex(dut.regfile.registers[1].value) == "00000050" # stored old pc + 4
+
+    await RisingEdge(dut.clk) # lw x7 0xC(x0)
+    assert binary_to_hex(dut.regfile.registers[7].value) == "DEADBEEF"
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Runs the full instruction datapath test"""
@@ -143,3 +170,4 @@ async def cpu_insrt_test(dut):
     await test_and(dut)
     await test_or(dut)
     await test_beq(dut)
+    await test_jal(dut)

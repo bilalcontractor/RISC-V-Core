@@ -6,11 +6,16 @@ module cpu(
 //Program counter(pc)
 logic [31:0] pc;
 logic [31:0] pc_next;
+logic [31:0] pc_target;
+logic [31:0] pc_plus_four;
+
 
 always_comb begin
+    pc_target = pc + immediate;
+    pc_plus_four = pc + 4;
     case(pc_source) 
-        1'b1: pc_next = pc + immediate; //the pc switching if B type instruction
-        default: pc_next = pc + 4;
+        1'b1: pc_next = pc_target; //the pc switching if B type instruction
+        default: pc_next = pc_plus_four;
     endcase
 end
 
@@ -52,7 +57,7 @@ logic mem_write;
 logic reg_write;
 //out muxes
 logic alu_source;
-logic write_back_source;
+logic [1:0] write_back_source;
 
 logic pc_source;
 
@@ -88,7 +93,9 @@ logic [31:0] read_reg2;
 logic [31:0] write_back_data;
 always_comb begin
     case (write_back_source) 
-        1'b1: write_back_data = mem_read;
+        2'b00: write_back_data = alu_result; //R type, 
+        2'b01: write_back_data = mem_read; //load value from memory(lw)
+        2'b10: write_back_data = pc_plus_four; //J type(jal)
         default: write_back_data = alu_result;
     endcase
 end
