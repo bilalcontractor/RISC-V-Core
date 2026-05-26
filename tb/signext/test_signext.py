@@ -138,3 +138,20 @@ async def signext_j_type_test(dut):
         dut.imm_source.value = source
         await Timer(1, units="ns") # let it propagate ...
         assert int(dut.immediate.value) - (1 << 32) == imm - (1 << 21)
+        
+@cocotb.test()
+async def signext_u_type_test(dut):
+    for _ in range(100):
+        # TEST POSITIVE  NEGATIVE IMM
+        await Timer(100, units="ns")
+        imm_31_12 = random.randint(0,0b11111111111111111111)
+        raw_data =  (imm_31_12 << 5)
+        # add random junk to the raw_data to see if it is indeed discarded
+        random_junk = random.randint(0,0b11111)
+        raw_data |= random_junk
+        source = 0b100 
+        await Timer(1, units="ns")
+        dut.raw_src.value = raw_data
+        dut.imm_source.value = source
+        await Timer(1, units="ns") # let it propagate ...
+        assert int(dut.immediate.value) == imm_31_12 << 12

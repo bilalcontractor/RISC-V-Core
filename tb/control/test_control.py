@@ -1,20 +1,18 @@
 import cocotb
 from cocotb.triggers import Timer
-import random
-from cocotb.binary import BinaryValue
+from cocotb.types import LogicArray
 
-@cocotb.coroutine
 async def set_unknown(dut):
     # Set all input to unknown before each test
     await Timer(1, units="ns")
-    dut.op.value = BinaryValue("XXXXXXX")
+    dut.op.value = LogicArray("XXXXXXX")
     #
     # Uncomment the following throughout the course when needed
     #
-    # dut.func3.value = BinaryValue("XXX")
-    # dut.func7.value = BinaryValue("XXXXXXX")
-    # dut.alu_zero.value = BinaryValue("X")
-    # dut.alu_last_bit.value = BinaryValue("X")
+    # dut.func3.value = LogicArray("XXX")
+    # dut.func7.value = LogicArray("XXXXXXX")
+    # dut.alu_zero.value = LogicArray("X")
+    # dut.alu_last_bit.value = LogicArray("X")
     await Timer(1, units="ns")
 
 @cocotb.test()
@@ -25,10 +23,10 @@ async def lw_control_test(dut):
     dut.op.value = 0b0000011 #lw
     await Timer(1, units="ns")
     assert dut.alu_control.value == "000"
-    assert dut.imm_source.value == "00"
+    assert dut.imm_source.value == "000"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
-    assert dut.pc_source.value == "0" 
+    assert dut.pc_source.value == "0"
     
 @cocotb.test()
 async def sw_control_test(dut):
@@ -38,7 +36,7 @@ async def sw_control_test(dut):
     dut.op.value = 0b0100011 #sw
     await Timer(1, units="ns")
     assert dut.alu_control.value == "000"
-    assert dut.imm_source.value == "01"
+    assert dut.imm_source.value == "001"
     assert dut.mem_write.value == "1"
     assert dut.reg_write.value == "0"
     assert dut.pc_source.value == "0"
@@ -102,7 +100,7 @@ async def beq_control_test(dut):
     dut.alu_zero.value = 0b0
     await Timer(1, units="ns")
 
-    assert dut.imm_source.value == "10"
+    assert dut.imm_source.value == "010"
     assert dut.alu_control.value == "001"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "0"
@@ -124,7 +122,7 @@ async def jal_control_test(dut):
     dut.op.value = 0b1101111 # J-TYPE
     await Timer(1, units="ns")
 
-    assert dut.imm_source.value == "11"
+    assert dut.imm_source.value == "011"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
     assert dut.branch.value == "0"
@@ -142,11 +140,12 @@ async def addi_control_test(dut):
     await Timer(1, units="ns")
 
     # Logic block controls
-    assert dut.alu_control.value == "000" 
-    assert dut.imm_source.value == "00"
+    assert dut.alu_control.value == "000"
+    assert dut.imm_source.value == "000"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
     # Datapath mux sources
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "00"
     assert dut.pc_source.value == "0"
+

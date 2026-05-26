@@ -9,13 +9,19 @@ logic [31:0] pc_next;
 logic [31:0] pc_target;
 logic [31:0] pc_plus_four;
 
+assign pc_plus_four = pc + 4;
 
 always_comb begin
-    pc_target = pc + immediate;
-    pc_plus_four = pc + 4;
     case(pc_source) 
-        1'b1: pc_next = pc_target; //the pc switching if B type instruction
-        default: pc_next = pc_plus_four;
+        1'b0: pc_next = pc_plus_four; 
+        1'b1: pc_next = pc_target; //a jump
+    endcase
+end
+
+always_comb begin
+    case(second_add_source) 
+        1'b0: pc_target = pc + immediate;
+        1'b1: pc_target = immediate;
     endcase
 end
 
@@ -52,7 +58,7 @@ assign func3 = instruction[14:12];
 logic alu_zero;
 //out of control
 logic [2:0] alu_control;
-logic [1:0] imm_source;
+logic [2:0] imm_source;
 logic mem_write;
 logic reg_write;
 //out muxes
@@ -60,6 +66,7 @@ logic alu_source;
 logic [1:0] write_back_source;
 
 logic pc_source;
+logic second_add_source;
 
 control control(
     .op(op),
@@ -75,7 +82,8 @@ control control(
     .alu_source(alu_source),
     .write_back_source(write_back_source),
 
-    .pc_source(pc_source)
+    .pc_source(pc_source),
+    .second_add_source(second_add_source)
 );
 
 //Register file
@@ -96,6 +104,7 @@ always_comb begin
         2'b00: write_back_data = alu_result; //R type, 
         2'b01: write_back_data = mem_read; //load value from memory(lw)
         2'b10: write_back_data = pc_plus_four; //J type(jal)
+        2'b11: write_back_data = pc_target;
         default: write_back_data = alu_result;
     endcase
 end

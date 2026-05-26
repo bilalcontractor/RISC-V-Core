@@ -5,12 +5,13 @@ module control (
     input logic alu_zero,
 
     output logic [2:0] alu_control,
-    output logic [1:0] imm_source,
+    output logic [2:0] imm_source,
     output logic mem_write,
     output logic reg_write,
     output logic alu_source,
     output logic [1:0] write_back_source,
-    output logic pc_source
+    output logic pc_source,
+    output logic second_add_source
 ); 
 
 //Main Decoder
@@ -21,17 +22,18 @@ logic assert_branch;   //dynamic: the branch condition currently holds
 always_comb begin
     //defaults so every signal is driven on every path (no latches)
     reg_write = 1'b0;
-    imm_source = 2'b00;
+    imm_source = 3'b000;
     mem_write = 1'b0;
     alu_op = 2'b00;
     alu_source = 1'b0; //reg2
     write_back_source = 2'b00; //alu_result
     jump = 1'b0;
+    second_add_source = 1'b0;
     case (op)
         //I type(lw)
         7'b0000011 : begin //opcode for load
             reg_write = 1'b1; //writing to a register (the data we load)
-            imm_source = 2'b00; //tell signext to use I-type formatting
+            imm_source = 3'b000; //tell signext to use I-type formatting
             mem_write = 1'b0; //not writing to memory
             alu_op = 2'b00; //used in second ALU decoder block
             alu_source = 1'b1; //immediate, for address calc
@@ -42,7 +44,7 @@ always_comb begin
         //S type(sw)
         7'b0100011 : begin //opcode
             reg_write = 1'b0; //not writing to register
-            imm_source = 2'b01; //tell signext to use S-type formatting
+            imm_source = 3'b001; //tell signext to use S-type formatting
             mem_write = 1'b1; //writing to memory
             alu_op = 2'b00; //used for ALU, same as I type
             alu_source = 1'b1; //immediate, for address calc
@@ -62,7 +64,7 @@ always_comb begin
         //B type(beq)
         7'b1100011: begin
             reg_write = 1'b0; //not writing to register
-            imm_source = 2'b10;
+            imm_source = 3'b010;
             alu_source = 1'b0;
             mem_write = 1'b0;
             alu_op = 2'b01;
@@ -72,7 +74,7 @@ always_comb begin
         //J type(jal)
         7'b1101111: begin
             reg_write = 1'b1; 
-            imm_source = 2'b11;
+            imm_source = 3'b011;
             mem_write = 1'b0;
             write_back_source = 2'b10; //pc + 4
             branch = 1'b0;
@@ -81,7 +83,7 @@ always_comb begin
         //ALU I type(addi) 
         7'b0010011: begin
             reg_write = 1'b1; //writing to register
-            imm_source = 2'b00; //I type formatting 
+            imm_source = 3'b000; //I type formatting
             alu_source = 1'b1; //Immediate is the 2nd ALU operand
             mem_write = 1'b0; //not touching memory
             alu_op = 2'b10;
@@ -89,9 +91,22 @@ always_comb begin
             branch = 1'b0;
             jump = 1'b0;
         end
+        //U-type
+        7'b0110111, 7'b0010111 : begin
+            imm_source = 3'b000;
+            mem_write = 1'b0;
+            reg_write = 1'b1;
+            write_back_source = 2'b11;
+            branch = 1'b0;
+            jump = 1'b0;
+            case(op[5])
+                1'b1: second_add_source = 1'b1; //lui
+                1'b0: second_add_source = 1'b0; //auipc
+            endcase
+        end
         default: begin
             reg_write = 1'b0;
-            imm_source = 2'b00;
+            imm_source = 3'b000;
             mem_write = 1'b0;
             alu_op = 2'b00;
             branch = 1'b0;
@@ -121,7 +136,6 @@ always_comb begin
 end
 
 //Branch resolution: is the branch condition satisfied given the ALU flags?
-//Computed for every instruction, so it MUST be gated by the opcode below.
 always_comb begin
     case (func3)
         3'b000:  assert_branch = alu_zero;   //beq: taken if rs1 == rs2
