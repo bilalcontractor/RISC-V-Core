@@ -194,6 +194,20 @@ async def test_lui(dut):
 
     await RisingEdge(dut.clk) # lui x5 0x2F2FA 
     assert binary_to_hex(dut.regfile.registers[5].value) == "2F2FA000"
+    
+async def test_sltiu(dut):
+    # FFF9BB13  //SLTIU TEST START :  sltiu x22 x19 0xFFF | x22 <= 00000001
+    # 0019BB13  //                    sltiu x22 x19 0x001 | x22 <= 00000000
+    print("\n\nTESTING SLTIU\n\n")
+
+    # Check test's init state
+    assert binary_to_hex(dut.instruction.value) == "FFF9BB13"
+
+    await RisingEdge(dut.clk) # sltiu x22 x19 0xFFF
+    assert binary_to_hex(dut.regfile.registers[22].value) == "00000001"
+
+    await RisingEdge(dut.clk) # sltiu x22 x19 0x001 
+    assert binary_to_hex(dut.regfile.registers[22].value) == "00000000"
 
 
 @cocotb.test()
@@ -214,3 +228,4 @@ async def cpu_insrt_test(dut):
     assert test_addi(dut)
     assert test_auipc(dut)
     assert test_lui(dut)
+    assert test_sltiu(dut)

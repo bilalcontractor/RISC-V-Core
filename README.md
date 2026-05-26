@@ -7,12 +7,12 @@ The core is a classic single-cycle datapath: every instruction fetches,
 decodes, executes, accesses memory, and writes back within one clock cycle.
 
 ```
-        +----+      +-------------+      +---------+      +-----+      +-------------+
-  pc -->| IMEM|--->| control +    |--->| regfile |--->| alu |--->| data memory  |
+        +----+      +-------------+     +---------+    +-----+    +-------------+
+  pc -->|IMEM|--->  | control +   |---> | regfile |--->| alu |--->| data memory |
         +----+      | signext     |     +---------+    +-----+    +-------------+
           ^         +-------------+          |            |            |
-          |                                   +-----------+------------+
-          +--------------------- pc_next (pc+4 or branch target) -------+
+          |                                  +-----------+-------------+
+          +--------------------- pc_next (pc+4 or branch target) ------+
 ```
 
 | Module        | File              | Role                                                        |

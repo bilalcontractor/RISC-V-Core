@@ -122,14 +122,16 @@ always_comb begin
         //R types
         2'b10 : begin
             case (func3)
-                3'b000 : alu_control = 3'b000; //ADD
-                3'b111 : alu_control = 3'b010; //AND
-                3'b110 : alu_control = 3'b011; //OR
-                default : alu_control = 3'b111; //Everything else
+                3'b000: alu_control = 3'b000; //ADD
+                3'b111: alu_control = 3'b010; //AND
+                3'b110: alu_control = 3'b011; //OR
+                3'b010: alu_control = 3'b101; //SLTI
+                3'b011: alu_control = 3'b111; //SLTIU
+                default: alu_control = 3'b111; //Everything else
             endcase
         end
         //B type --> BEQ
-        2'b01 : alu_control = 3'b001;
+        2'b01: alu_control = 3'b001;
         //Everything else
         default: alu_control = 3'b111;
     endcase
