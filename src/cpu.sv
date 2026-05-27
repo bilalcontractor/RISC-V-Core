@@ -54,10 +54,14 @@ memory #(
 logic [6:0] op; //opcode
 assign op = instruction[6:0];
 logic [2:0] func3; //function 3
+
 assign func3 = instruction[14:12];
+logic [6:0] func7;
+assign func7 = instruction[31:25];
+
 logic alu_zero;
 //out of control
-logic [2:0] alu_control;
+logic [3:0] alu_control;
 logic [2:0] imm_source;
 logic mem_write;
 logic reg_write;
@@ -71,7 +75,7 @@ logic second_add_source;
 control control(
     .op(op),
     .func3(func3),
-    .func7(7'b0),
+    .func7(func7),
     .alu_zero(alu_zero),
     //Out
     .alu_control(alu_control),

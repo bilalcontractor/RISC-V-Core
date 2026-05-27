@@ -195,6 +195,20 @@ async def test_lui(dut):
     await RisingEdge(dut.clk) # lui x5 0x2F2FA 
     assert binary_to_hex(dut.regfile.registers[5].value) == "2F2FA000"
     
+async def test_slti(dut):
+    # FFF9AB93  SLTI TEST START :  slti x23 x19 0xFFF | x23 <= 00000000
+    # 001BAB93                     slti x23 x23 0x001 | x23 <= 00000001
+    print("\n\nTESTING SLTI\n\n")
+
+    # Check test's init state
+    assert binary_to_hex(dut.instruction.value) == "FFF9AB93"
+
+    await RisingEdge(dut.clk) # slti x23 x19 0xFFF (x19 positive, imm = -1 -> 0)
+    assert binary_to_hex(dut.regfile.registers[23].value) == "00000000"
+
+    await RisingEdge(dut.clk) # slti x23 x23 0x001 (0 < 1 -> 1)
+    assert binary_to_hex(dut.regfile.registers[23].value) == "00000001"
+
 async def test_sltiu(dut):
     # FFF9BB13  //SLTIU TEST START :  sltiu x22 x19 0xFFF | x22 <= 00000001
     # 0019BB13  //                    sltiu x22 x19 0x001 | x22 <= 00000000
@@ -208,7 +222,71 @@ async def test_sltiu(dut):
 
     await RisingEdge(dut.clk) # sltiu x22 x19 0x001 
     assert binary_to_hex(dut.regfile.registers[22].value) == "00000000"
+    
+async def test_xori(dut):
+    # AAA94913  //XORI TEST START :   xori x18 x18 0xAAA  | x18 <= 21524445 
+    # 00094993  //                    xori x19 x18 0x000  | x19 <= 21524445
+    print("\n\nTESTING XORI\n\n")
 
+    # Check test's init state
+    assert binary_to_hex(dut.instruction.value) == "AAA94913"
+
+    await RisingEdge(dut.clk) # xori x18 x19 0xAAA 
+    assert binary_to_hex(dut.regfile.registers[18].value) == "21524445"
+
+    await RisingEdge(dut.clk) # xori x19 x18 0x000    
+    assert (
+        binary_to_hex(dut.regfile.registers[19].value) ==
+        binary_to_hex(dut.regfile.registers[18].value)
+    )
+
+async def test_slli(dut):
+    # 00499A13  SLLI TEST START :  slli x20 x19 0x4  | x20 <= 15244450
+    print("\n\nTESTING SLLI\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "00499A13"
+
+    await RisingEdge(dut.clk) # slli x20 x19 0x4
+    assert binary_to_hex(dut.regfile.registers[20].value) == "15244450"
+
+async def test_srli(dut):
+    # 0089DA93  SRLI TEST START :  srli x21 x19 0x8  | x21 <= 00215244
+    print("\n\nTESTING SRLI\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "0089DA93"
+
+    await RisingEdge(dut.clk) # srli x21 x19 0x8
+    assert binary_to_hex(dut.regfile.registers[21].value) == "00215244"
+
+async def test_srai(dut):
+    # 4043DB13  SRAI TEST START :  srai x22 x7 0x4   | x22 <= FDEADBEE
+    # x7 holds DEADBEEF (MSB set), so the sign bit must be replicated
+    print("\n\nTESTING SRAI\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "4043DB13"
+
+    await RisingEdge(dut.clk) # srai x22 x7 0x4
+    assert binary_to_hex(dut.regfile.registers[22].value) == "FDEADBEE"
+
+async def test_ori(dut):
+    # F0F9EB93  ORI TEST START :   ori x23 x19 0xF0F | x23 <= FFFFFF4F
+    # imm 0xF0F has bit 11 set, so it sign-extends to 0xFFFFFF0F
+    print("\n\nTESTING ORI\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "F0F9EB93"
+
+    await RisingEdge(dut.clk) # ori x23 x19 0xF0F
+    assert binary_to_hex(dut.regfile.registers[23].value) == "FFFFFF4F"
+
+async def test_andi(dut):
+    # 7A59FC13  ANDI TEST START :  andi x24 x19 0x7A5 | x24 <= 00000405
+    # imm 0x7A5 has bit 11 clear, so it zero-extends to 0x000007A5
+    print("\n\nTESTING ANDI\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "7A59FC13"
+
+    await RisingEdge(dut.clk) # andi x24 x19 0x7A5
+    assert binary_to_hex(dut.regfile.registers[24].value) == "00000405"
 
 @cocotb.test()
 async def cpu_insrt_test(dut):
@@ -225,7 +303,14 @@ async def cpu_insrt_test(dut):
     await test_or(dut)
     await test_beq(dut)
     await test_jal(dut)
-    assert test_addi(dut)
-    assert test_auipc(dut)
-    assert test_lui(dut)
-    assert test_sltiu(dut)
+    await test_addi(dut)
+    await test_auipc(dut)
+    await test_lui(dut)
+    await test_slti(dut)
+    await test_sltiu(dut)
+    await test_xori(dut)
+    await test_slli(dut)
+    await test_srli(dut)
+    await test_srai(dut)
+    await test_ori(dut)
+    await test_andi(dut)
