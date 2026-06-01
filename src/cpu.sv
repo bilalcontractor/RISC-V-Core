@@ -60,6 +60,7 @@ logic [6:0] func7;
 assign func7 = instruction[31:25];
 
 logic alu_zero;
+logic alu_last;
 //out of control
 logic [3:0] alu_control;
 logic [2:0] imm_source;
@@ -77,6 +78,7 @@ control control(
     .func3(func3),
     .func7(func7),
     .alu_zero(alu_zero),
+    .alu_last(alu_last),
     //Out
     .alu_control(alu_control),
     .imm_source(imm_source),
@@ -155,7 +157,8 @@ alu alu(
     .src1(read_reg1),
     .src2(alu_source2),
     .alu_result(alu_result),
-    .zero(alu_zero)
+    .zero(alu_zero),
+    .alu_last(alu_last)
 );
 
 //Data Memory

@@ -19,9 +19,9 @@ decodes, executes, accesses memory, and writes back within one clock cycle.
 |---------------|-------------------|-------------------------------------------------------------|
 | `cpu`         | `src/cpu.sv`      | Top level: PC, wiring, write-back / ALU-source muxes        |
 | `control`     | `src/control.sv`  | Main decoder + ALU decoder + branch resolution              |
-| `alu`         | `src/alu.sv`      | ADD / SUB / AND / OR, plus a `zero` flag                     |
+| `alu`         | `src/alu.sv`      | ADD / SUB / AND / OR / XOR / SLT(U) / shifts, plus `zero` and `alu_last` flags |
 | `regfile`     | `src/regfile.sv`  | 32 × 32-bit register file (2 read ports, 1 write port)      |
-| `signext`     | `src/signext.sv`  | Immediate extraction/sign-extension for I/S/B/J formats     |
+| `signext`     | `src/signext.sv`  | Immediate extraction/sign-extension for I/S/B/J/U formats   |
 | `memory`      | `src/memory.sv`   | Shared module used for both instruction and data memory     |
 
 Instruction and data memory are each initialized from a `.hex` file
@@ -31,11 +31,20 @@ Instruction and data memory are each initialized from a `.hex` file
 
 | Type | Instructions    | Status        |
 |------|-----------------|---------------|
-| I    | `lw`            | ✅ implemented |
-| S    | `sw`            | ✅ implemented |
-| R    | `add` `and` `or`| ✅ implemented |
-| B    | `beq` (`bne` decode wired) | ✅ implemented |
-| J    | `jal`           | 🚧 partial (decoder stub, datapath not complete) |
+| I (load) | `lw`        | ✅ implemented + tested |
+| S    | `sw`            | ✅ implemented + tested |
+| R    | `add` `sub` `and` `or` `xor` `sll` `srl` `sra` `slt` `sltu` | ✅ implemented + tested |
+| I (ALU) | `addi` `andi` `ori` `xori` `slti` `sltiu` `slli` `srli` `srai` | ✅ implemented + tested |
+| U    | `lui` `auipc`   | ✅ implemented + tested |
+| J    | `jal`           | ✅ implemented + tested |
+| B    | `beq` `blt`     | ✅ implemented + tested |
+| B    | `bne` `bge` `bltu` `bgeu` | 🚧 fully decode/flag-wired, not yet tested |
+
+The ALU exposes two branch flags: `zero` (whole result is 0, used by `beq`/`bne`)
+and `alu_last` (result bit 0, used by `blt`/`bge`/`bltu`/`bgeu` since the SLT
+operations deposit their comparison there). The control unit's branch-resolution
+table maps `func3` to the right flag — with `func3[0]` acting as the "invert the
+condition" bit — and gates it with the `branch` signal to form `pc_source`.
 
 ## Roadmap
 
@@ -47,11 +56,8 @@ beyond it.
 
 **Remaining course material** (mostly decoder + immediate work, datapath largely exists)
 
-- Remaining branches: `bne` `blt` `bge` `bltu` `bgeu`
-- Jumps: complete `jal`, add `jalr`
-- I-type ALU: `addi` `andi` `ori` `xori` `slti` `sltiu` `slli` `srli` `srai`
-- R-type ALU: `sub` `xor` `sll` `srl` `sra` `slt` `sltu`
-- Upper immediates: `lui` `auipc`
+- Branch tests: add cocotb cases for the already-wired `bne` `bge` `bltu` `bgeu`
+- Jumps: add `jalr`
 - Other loads/stores: `lb` `lh` `lbu` `lhu` `sb` `sh` (needs a load/store decoder)
 - Zicsr: CSR instructions + a CSR register file (FPGA edition)
 
@@ -95,10 +101,3 @@ make clean
 Each `tb/<module>/` directory contains a `Makefile` and a `test_<module>.py`.
 Swap `alu` for `control`, `regfile`, `signext`, `memory`, or `cpu` to run the
 others. Waveforms are emitted as `.vcd` files (open with GTKWave).
-
-## Known issues
-
-- The full-`cpu` testbench (`tb/cpu`) is currently failing and under
-  investigation.
-- `jal` / J-type execution is not yet complete; the decoder accepts the opcode
-  but the jump datapath is still being built.

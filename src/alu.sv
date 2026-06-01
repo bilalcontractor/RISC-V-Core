@@ -5,8 +5,12 @@ module alu (
     input logic [31:0] src2,
     //Out
     output logic [31:0] alu_result,
-    output logic zero
+    output logic zero,
+    output logic alu_last
 );
+
+assign alu_last = alu_result[0]; //last bit of result
+assign zero = (alu_result == 32'b0);
 
 always_comb begin 
     case(alu_control)
@@ -22,10 +26,9 @@ always_comb begin
         4'b0100: alu_result = src1 << src2[4:0]; //SLLI --> shift left logical immediate
         4'b1001: alu_result = $signed(src1) >>> src2[4:0]; //SRAI --> shift right arithmetic immediate
         4'b0110: alu_result = src1 >> src2[4:0]; //SRLI --> shift right logical immediate
-        
+
         default: alu_result = 32'b0;
     endcase
 end
 
-assign zero = (alu_result == 32'b0);
 endmodule

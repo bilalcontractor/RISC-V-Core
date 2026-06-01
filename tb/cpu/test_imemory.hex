@@ -44,4 +44,11 @@ F0F9EB93  //ORI  TEST START :   ori  x23 x19 0xF0F  | x23 <= FFFFFF4F  (imm sign
 013948B3  //XOR TEST START :    xor x17 x18 x19     | x17 <= EE5FBB45  (CF0DFF00 ^ 21524445)
 0079D433  //SRL TEST START :    srl x8 x19 x7       | x8  <= 00215244  (21524445 >> 8 logical)
 407B5433  //SRA TEST START :    sra x8 x22 x7       | x8  <= FFFDEADB  (x22=FDEADBEE MSB=1, sign-extended)
-00000013  //NOP
+00744663  //BLT TEST START :    blt x8 x7 0xC       | x8(FFFDEADB,neg) < x7(8) signed -> TAKEN, skip poison
+7AD00E13  //                    addi x28 x0 0x7AD   | Should NOT execute. BLT should branch over (x28 would be 000007AD)
+00000013  //                    nop                 | NOP
+11100E13  //                    addi x28 x0 0x111   | TAKEN lands here  | x28 <= 00000111
+0083C663  //                    blt x7 x8 0xC       | x7(8) < x8(neg) signed -> NOT TAKEN, fall through
+22200E93  //                    addi x29 x0 0x222   | NOT-TAKEN path     | x29 <= 00000222
+00000013  //                    nop                 | NOP
+00000013  //                    nop                 | would-be BLT #2 target (unreached)

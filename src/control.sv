@@ -3,6 +3,7 @@ module control (
     input logic [2:0] func3,
     input logic [6:0] func7,
     input logic alu_zero,
+    input logic alu_last,
 
     output logic [3:0] alu_control,
     output logic [2:0] imm_source,
@@ -141,8 +142,15 @@ always_comb begin
                 default: alu_control = 4'b0111; //Everything else
             endcase
         end
-        //B type --> BEQ
-        2'b01: alu_control = 4'b0001;
+        //B type
+        2'b01: begin
+            case (func3)
+                3'b000, 3'b001: alu_control = 4'b0001; //BEQ/BNE   -> SUB (use zero flag)
+                3'b100, 3'b101: alu_control = 4'b0101; //BLT/BGE   -> signed SLT (use last bit)
+                3'b110, 3'b111: alu_control = 4'b0111; //BLTU/BGEU -> unsigned SLT (use last bit)
+                default:        alu_control = 4'b0001; //fall back to SUB
+            endcase
+        end
         //Everything else
         default: alu_control = 4'b0111;
     endcase
@@ -151,8 +159,12 @@ end
 //Branch resolution: is the branch condition satisfied given the ALU flags?
 always_comb begin
     case (func3)
-        3'b000:  assert_branch = alu_zero;   //beq: taken if rs1 == rs2
-        3'b001:  assert_branch = ~alu_zero;  //bne: taken if rs1 != rs2
+        3'b000:  assert_branch = alu_zero;   //beq
+        3'b001:  assert_branch = ~alu_zero;  //bne
+        3'b100:  assert_branch = alu_last;   //blt
+        3'b101:  assert_branch = ~alu_last;  //bge
+        3'b110:  assert_branch = alu_last;   //bltu
+        3'b111:  assert_branch = ~alu_last;  //bgeu
         default: assert_branch = 1'b0;
     endcase
 end

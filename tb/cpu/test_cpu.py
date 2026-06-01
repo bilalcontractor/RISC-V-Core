@@ -367,6 +367,35 @@ async def test_sra(dut):
     await RisingEdge(dut.clk) # sra x8 x22 x7
     assert binary_to_hex(dut.regfile.registers[8].value) == "FFFDEADB"
 
+async def test_blt(dut):
+    # 00744663  BLT TEST START :  blt x8 x7 0xC   | x8 < x7 (signed) -> TAKEN
+    #   x8 = FFFDEADB (signed -136485), x7 = 00000008 (+8): -136485 < 8 is true,
+    #   so the branch is taken: `addi x28 x0 0x7AD` is SKIPPED and we
+    #   land directly on `addi x28 x0 0x111`.
+    # 0083C663                    blt x7 x8 0xC   | x7 < x8 (signed) -> NOT TAKEN
+    #   8 < -136485 is false, so we fall through to `addi x29 x0 0x222`.
+    print("\n\nTESTING BLT\n\n")
+
+    # We just executed SRA; the blt is the next fetched instruction.
+    assert binary_to_hex(dut.instruction.value) == "00744663"
+
+    await RisingEdge(dut.clk) # blt x8 x7 0xC TAKEN
+    # PC jumped over the poison addi straight to the landing addi
+    assert binary_to_hex(dut.instruction.value) == "11100E13"
+
+    await RisingEdge(dut.clk) # addi x28 x0 0x111 (landing)
+    # 0x111 (not 0x7AD) proves the poison instruction was skipped
+    assert binary_to_hex(dut.regfile.registers[28].value) == "00000111"
+    # Next fetched instruction is the second blt
+    assert binary_to_hex(dut.instruction.value) == "0083C663"
+
+    await RisingEdge(dut.clk) # blt x7 x8 0xC NOT TAKEN
+    # No redirect: the very next sequential instruction is fetched
+    assert binary_to_hex(dut.instruction.value) == "22200E93"
+
+    await RisingEdge(dut.clk) # addi x29 x0 0x222 (fall-through)
+    assert binary_to_hex(dut.regfile.registers[29].value) == "00000222"
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Runs the full instruction datapath test"""
@@ -400,3 +429,4 @@ async def cpu_insrt_test(dut):
     await test_xor(dut)
     await test_srl(dut)
     await test_sra(dut)
+    await test_blt(dut)
