@@ -171,9 +171,9 @@ async def test_addi(dut):
 
     await RisingEdge(dut.clk) # addi x25 x6 0xF21
     assert binary_to_hex(dut.regfile.registers[25].value) == "7F4FD38B"
-    
+
 async def test_auipc(dut):
-    # 1F1FA297  //AUIPC TEST START :  auipc x5 0x1F1FA    | x5 <= 1F1FA064 
+    # 1F1FA297  //AUIPC TEST START :  auipc x5 0x1F1FA    | x5 <= 1F1FA064
     ##################
     print("\n\nTESTING AUIPC\n\n")
 
@@ -182,7 +182,7 @@ async def test_auipc(dut):
 
     await RisingEdge(dut.clk) # auipc x5 0x1F1FA
     assert binary_to_hex(dut.regfile.registers[5].value) == "1F1FA064"
-    
+
 async def test_lui(dut):
     # LUI TEST
     # 2F2FA2B7  //LUI TEST START :    lui x5 0x2F2FA      | x5 <= 2F2FA000
@@ -192,9 +192,9 @@ async def test_lui(dut):
     # Check test's init state
     assert binary_to_hex(dut.instruction.value) == "2F2FA2B7"
 
-    await RisingEdge(dut.clk) # lui x5 0x2F2FA 
+    await RisingEdge(dut.clk) # lui x5 0x2F2FA
     assert binary_to_hex(dut.regfile.registers[5].value) == "2F2FA000"
-    
+
 async def test_slti(dut):
     # FFF9AB93  SLTI TEST START :  slti x23 x19 0xFFF | x23 <= 00000000
     # 001BAB93                     slti x23 x23 0x001 | x23 <= 00000001
@@ -220,21 +220,21 @@ async def test_sltiu(dut):
     await RisingEdge(dut.clk) # sltiu x22 x19 0xFFF
     assert binary_to_hex(dut.regfile.registers[22].value) == "00000001"
 
-    await RisingEdge(dut.clk) # sltiu x22 x19 0x001 
+    await RisingEdge(dut.clk) # sltiu x22 x19 0x001
     assert binary_to_hex(dut.regfile.registers[22].value) == "00000000"
-    
+
 async def test_xori(dut):
-    # AAA94913  //XORI TEST START :   xori x18 x18 0xAAA  | x18 <= 21524445 
+    # AAA94913  //XORI TEST START :   xori x18 x18 0xAAA  | x18 <= 21524445
     # 00094993  //                    xori x19 x18 0x000  | x19 <= 21524445
     print("\n\nTESTING XORI\n\n")
 
     # Check test's init state
     assert binary_to_hex(dut.instruction.value) == "AAA94913"
 
-    await RisingEdge(dut.clk) # xori x18 x19 0xAAA 
+    await RisingEdge(dut.clk) # xori x18 x19 0xAAA
     assert binary_to_hex(dut.regfile.registers[18].value) == "21524445"
 
-    await RisingEdge(dut.clk) # xori x19 x18 0x000    
+    await RisingEdge(dut.clk) # xori x19 x18 0x000
     assert (
         binary_to_hex(dut.regfile.registers[19].value) ==
         binary_to_hex(dut.regfile.registers[18].value)
@@ -288,6 +288,85 @@ async def test_andi(dut):
     await RisingEdge(dut.clk) # andi x24 x19 0x7A5
     assert binary_to_hex(dut.regfile.registers[24].value) == "00000405"
 
+async def test_sub(dut):
+    # 412A8933  SUB TEST START :    sub x18 x21 x18  | x18 <= DECF0DFF
+    # At this point x21 = 00215244 (from srli) and x18 = 21524445 (from xori),
+    # so x21 - x18 borrows -> a negative two's-complement result.
+    print("\n\nTESTING SUB\n\n")
+
+    # Check test's init state
+    assert binary_to_hex(dut.instruction.value) == "412A8933"
+
+    await RisingEdge(dut.clk) # sub x18 x21 x18
+    assert binary_to_hex(dut.regfile.registers[18].value) == "DECF0DFF"
+
+async def test_sll(dut):
+    # 00800393  addi x7 x0 0x8     | x7  <= 00000008  (overwrite the DEADBEEF that was in x7)
+    # 00791933  sll x18 x18 x7     | x18 <= CF0DFF00  (DECF0DFF << 8, top byte dropped)
+    print("\n\nTESTING SLL\n\n")
+
+    # We just executed SUB; the next fetched instruction is the addi.
+    assert binary_to_hex(dut.instruction.value) == "00800393"
+
+    await RisingEdge(dut.clk) # addi x7 x0 0x8
+    assert binary_to_hex(dut.regfile.registers[7].value) == "00000008"
+    assert binary_to_hex(dut.instruction.value) == "00791933"
+
+    await RisingEdge(dut.clk) # sll x18 x18 x7
+    assert binary_to_hex(dut.regfile.registers[18].value) == "CF0DFF00"
+
+async def test_slt(dut):
+    # 017B28B3  slt x17 x22 x23    | x17 <= 00000001
+    # x22 = FDEADBEE (signed -34,956,818), x23 = FFFFFF4F (signed -177).
+    # Signed compare: -34,956,818 < -177 -> true -> 1.
+    print("\n\nTESTING SLT\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "017B28B3"
+
+    await RisingEdge(dut.clk) # slt x17 x22 x23
+    assert binary_to_hex(dut.regfile.registers[17].value) == "00000001"
+
+async def test_sltu(dut):
+    # 017B38B3  sltu x17 x22 x23   | x17 <= 00000001
+    # Unsigned: 0xFDEADBEE < 0xFFFFFF4F -> true -> 1.
+    print("\n\nTESTING SLTU\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "017B38B3"
+
+    await RisingEdge(dut.clk) # sltu x17 x22 x23
+    assert binary_to_hex(dut.regfile.registers[17].value) == "00000001"
+
+async def test_xor(dut):
+    # 013948B3  xor x17 x18 x19    | x17 <= EE5FBB45
+    # x18 = CF0DFF00 (after SLL), x19 = 21524445.
+    # Byte-wise XOR: CF^21=EE, 0D^52=5F, FF^44=BB, 00^45=45.
+    print("\n\nTESTING XOR\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "013948B3"
+
+    await RisingEdge(dut.clk) # xor x17 x18 x19
+    assert binary_to_hex(dut.regfile.registers[17].value) == "EE5FBB45"
+
+async def test_srl(dut):
+    # 0079D433  srl x8 x19 x7      | x8  <= 00215244
+    # x19 = 21524445 >> 8 (logical, zero fill) = 00215244.
+    print("\n\nTESTING SRL\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "0079D433"
+
+    await RisingEdge(dut.clk) # srl x8 x19 x7
+    assert binary_to_hex(dut.regfile.registers[8].value) == "00215244"
+
+async def test_sra(dut):
+    # 407B5433  sra x8 x22 x7      | x8  <= FFFDEADB
+    # x22 = FDEADBEE (MSB=1), shifted right by 8 (x7) with sign extension.
+    print("\n\nTESTING SRA\n\n")
+
+    assert binary_to_hex(dut.instruction.value) == "407B5433"
+
+    await RisingEdge(dut.clk) # sra x8 x22 x7
+    assert binary_to_hex(dut.regfile.registers[8].value) == "FFFDEADB"
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Runs the full instruction datapath test"""
@@ -314,3 +393,10 @@ async def cpu_insrt_test(dut):
     await test_srai(dut)
     await test_ori(dut)
     await test_andi(dut)
+    await test_sub(dut)
+    await test_sll(dut)
+    await test_slt(dut)
+    await test_sltu(dut)
+    await test_xor(dut)
+    await test_srl(dut)
+    await test_sra(dut)

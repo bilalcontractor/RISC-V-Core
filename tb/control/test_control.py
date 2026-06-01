@@ -43,16 +43,17 @@ async def sw_control_test(dut):
 
 @cocotb.test()
 async def add_control_test(dut):
+    await set_unknown(dut)
     # TEST CONTROL SIGNALS FOR ADD
     await Timer(10, units="ns")
     dut.op.value = 0b0110011 # R-TYPE
-    # F3 now important for R type ADD instruction
-    dut.func3.value = 0b000
+    dut.func3.value = 0b000 # add, sub
+    dut.func7.value = 0b0000000 # add 
     await Timer(1, units="ns")
+
     assert dut.alu_control.value == "0000"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
-    # Datapath mux sources
     assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "00"
     assert dut.pc_source.value == "0"
@@ -253,6 +254,23 @@ async def srai_control_test(dut):
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
+    assert dut.write_back_source.value == "00"
+    assert dut.pc_source.value == "0"
+    
+@cocotb.test()
+async def sub_control_test(dut):
+    await set_unknown(dut)
+    # TEST CONTROL SIGNALS FOR SUB
+    await Timer(10, units="ns")
+    dut.op.value = 0b0110011 # R-TYPE
+    dut.func3.value = 0b000 # add, sub
+    dut.func7.value = 0b0100000 # sub
+    await Timer(1, units="ns")
+
+    assert dut.alu_control.value == "0001"
+    assert dut.mem_write.value == "0"
+    assert dut.reg_write.value == "1"
+    assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "00"
     assert dut.pc_source.value == "0"
 

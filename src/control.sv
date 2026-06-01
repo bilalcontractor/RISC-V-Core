@@ -119,10 +119,18 @@ always_comb begin
     case(alu_op)
         //LW, SW
         2'b00: alu_control = 4'b0000;
-        //R types
+        //R types, I types
         2'b10 : begin
             case (func3)
-                3'b000: alu_control = 4'b0000; //ADD
+                // 3'b000: alu_control = 4'b0000; //ADD
+                3'b000: begin
+                    // Either R type(add or sub) or I type(addi)
+                    if (op == 7'b0110011) begin //If R type
+                        alu_control = func7[5] ? 4'b0001 : 4'b0000; //SUB : ADD
+                    end else begin
+                        alu_control = 4'b0000; //ADDI
+                    end
+                end
                 3'b111: alu_control = 4'b0010; //AND
                 3'b110: alu_control = 4'b0011; //OR
                 3'b100: alu_control = 4'b1000; //XOR/XORI
