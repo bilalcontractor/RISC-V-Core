@@ -50,5 +50,11 @@ F0F9EB93  //ORI  TEST START :   ori  x23 x19 0xF0F  | x23 <= FFFFFF4F  (imm sign
 11100E13  //                    addi x28 x0 0x111   | TAKEN lands here  | x28 <= 00000111
 0083C663  //                    blt x7 x8 0xC       | x7(8) < x8(neg) signed -> NOT TAKEN, fall through
 22200E93  //                    addi x29 x0 0x222   | NOT-TAKEN path     | x29 <= 00000222
-00000013  //                    nop                 | NOP
-00000013  //                    nop                 | would-be BLT #2 target (unreached)
+0E000293  //JALR TEST START :   addi x5 x0 0xE0     | x5  <= 000000E0  (jump base address)   PC 0xD0
+008280E7  //                    jalr x1 0x8(x5)     | pc <= x5+0x8 = 0xE8, x1 <= PC+4 = 0xD8
+11100313  //                    addi x6 x0 0x111    | POISON: jalr's link target @0xD8, must be skipped
+00000013  //                    nop                 | (jumped over)
+7AD00393  //                    addi x7 x0 0x7AD    | POISON @0xE0: skipped by the +0x8 offset
+00000013  //                    nop                 | (jumped over)
+22200E13  //                    addi x28 x0 0x222   | JALR LANDING @0xE8  | x28 <= 00000222
+00000013  //                    nop                 | FINAL NOP

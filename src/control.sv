@@ -11,7 +11,7 @@ module control (
     output logic reg_write,
     output logic alu_source,
     output logic [1:0] write_back_source,
-    output logic pc_source,
+    output logic [1:0] pc_source,
     output logic second_add_source
 ); 
 
@@ -19,6 +19,7 @@ module control (
 logic [1:0] alu_op;
 logic branch;          //static: this instruction is a branch type
 logic jump;            //static: unconditional jump (jal)
+logic jalr;
 logic assert_branch;   //dynamic: the branch condition currently holds
 always_comb begin
     //defaults so every signal is driven on every path (no latches)
@@ -30,6 +31,7 @@ always_comb begin
     write_back_source = 2'b00; //alu_result
     jump = 1'b0;
     second_add_source = 1'b0;
+    jalr = 1'b0;
     case (op)
         //I type(lw)
         7'b0000011 : begin //opcode for load
@@ -105,6 +107,18 @@ always_comb begin
                 1'b0: second_add_source = 1'b0; //auipc
             endcase
         end
+        //I type jump(jalr) 
+        7'b1100111: begin
+            reg_write = 1'b1;
+            imm_source = 3'b000; //I-type offset
+            alu_source = 1'b1; //src2 = immediate
+            alu_op = 2'b00; //ADD --> rs1 + offset
+            mem_write = 1'b0;
+            write_back_source = 2'b10; 
+            branch = 1'b0; //No branching
+            jump = 1'b0; //Want jalr, not jump
+            jalr = 1'b1;
+        end
         default: begin
             reg_write = 1'b0;
             imm_source = 3'b000;
@@ -169,7 +183,11 @@ always_comb begin
     endcase
 end
 
-//Redirect the PC only on a real branch whose condition holds, or on a jump
-assign pc_source = (assert_branch & branch) | jump;
+// //Redirect the PC only on a real branch whose condition holds, or on a jump(jal/jalr)
+always_comb begin
+    if (jalr) pc_source = 2'b10; //jalr --> alu_result
+    else if ((assert_branch && branch) | jump) pc_source = 2'b01; //branch/jal --> pc_target
+    else pc_source = 2'b00; //pc + 4
+end
 
 endmodule

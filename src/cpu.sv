@@ -13,8 +13,10 @@ assign pc_plus_four = pc + 4;
 
 always_comb begin
     case(pc_source) 
-        1'b0: pc_next = pc_plus_four; 
-        1'b1: pc_next = pc_target; //a jump
+        2'b00: pc_next = pc_plus_four; 
+        2'b01: pc_next = pc_target; //a jump
+        2'b10: pc_next = alu_result; //jalr
+        default: pc_next = pc_plus_four;
     endcase
 end
 
@@ -70,7 +72,7 @@ logic reg_write;
 logic alu_source;
 logic [1:0] write_back_source;
 
-logic pc_source;
+logic [1:0] pc_source;
 logic second_add_source;
 
 control control(

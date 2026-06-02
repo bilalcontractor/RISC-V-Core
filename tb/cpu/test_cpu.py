@@ -396,6 +396,36 @@ async def test_blt(dut):
     await RisingEdge(dut.clk) # addi x29 x0 0x222 (fall-through)
     assert binary_to_hex(dut.regfile.registers[29].value) == "00000222"
 
+async def test_jalr(dut):
+    # 0E000293  JALR TEST START : addi x5 x0 0xE0    | x5  <= 000000E0  (jump base address)
+    # 008280E7                    jalr x1 0x8(x5)    | pc  <= x5 + 0x8 = 0xE8, x1 <= old pc + 4 = 0xD8
+    #   The offset (0x8) must be ADDED to rs1 in the ALU, so we skip the
+    #   poison instrs at 0xD8 (addi x6 0x111) and 0xE0 (addi x7 0x7AD) and
+    #   land directly on the addi at 0xE8.
+    # 22200E13                    addi x28 x0 0x222  | x28 <= 00000222  (proves we landed)
+    print("\n\nTESTING JALR\n\n")
+
+    # We just executed the BLT fall-through addi; the addi that loads the
+    # jalr base address is the next fetched instruction (@ 0xD0).
+    assert binary_to_hex(dut.instruction.value) == "0E000293"
+
+    await RisingEdge(dut.clk) # addi x5 x0 0xE0
+    assert binary_to_hex(dut.regfile.registers[5].value) == "000000E0"
+    # The jalr itself is now fetched (@ 0xD4)
+    assert binary_to_hex(dut.instruction.value) == "008280E7"
+
+    await RisingEdge(dut.clk) # jalr x1 0x8(x5)
+    # PC jumped to rs1 + offset = 0xE0 + 0x8 = 0xE8, skipping both poisons
+    assert binary_to_hex(dut.pc.value) == "000000E8"
+    # Link register x1 holds the old pc + 4 = 0xD4 + 4 = 0xD8
+    assert binary_to_hex(dut.regfile.registers[1].value) == "000000D8"
+    # The landing instruction is now fetched
+    assert binary_to_hex(dut.instruction.value) == "22200E13"
+
+    await RisingEdge(dut.clk) # addi x28 x0 0x222 (landing)
+    # 0x222 (not the poison 0x111 / 0x7AD) proves rs1+offset jump worked
+    assert binary_to_hex(dut.regfile.registers[28].value) == "00000222"
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Runs the full instruction datapath test"""
@@ -430,3 +460,4 @@ async def cpu_insrt_test(dut):
     await test_srl(dut)
     await test_sra(dut)
     await test_blt(dut)
+    await test_jalr(dut)
