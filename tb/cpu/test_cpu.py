@@ -425,6 +425,31 @@ async def test_jalr(dut):
     await RisingEdge(dut.clk) # addi x28 x0 0x222 (landing)
     # 0x222 (not the poison 0x111 / 0x7AD) proves rs1+offset jump worked
     assert binary_to_hex(dut.regfile.registers[28].value) == "00000222"
+    
+async def test_sb(dut):
+    # 0EE00413  //SB TEST START :     addi x8 x0 0xEE     | x8 <= 000000EE
+    # 008020A3  //                    sw x8 0x1(x0)       | NO WRITE ! (mis-aligned !)
+    # 00800323  //                    sb x8 0x6(x0)       | mem @ 0x4 <= 00EE0000
+    #   The addi loads x8 with a known clean value (low byte EE) so this test
+    #   does not depend on whatever earlier tests left in x8.
+    print("\n\nTESTING SB\n\n")
+
+    # The addi that sets up x8 is the freshly fetched instruction
+    assert binary_to_hex(dut.instruction.value) == "0EE00413"
+
+    await RisingEdge(dut.clk) # addi x8 x0 0xEE
+    assert binary_to_hex(dut.regfile.registers[8].value) == "000000EE"
+    # the sw is now fetched
+    assert binary_to_hex(dut.instruction.value) == "008020A3"
+
+    await RisingEdge(dut.clk) # sw x8 0x1(x0)
+    # address is 1 because 0x6 is word @ address 4 and the test bench gets data by word
+    # misaligned word store (offset 0b01) -> byte_enable 0000 -> no write
+    assert binary_to_hex(dut.data_memory.mem[1].value) == "00000000"
+
+    await RisingEdge(dut.clk) # sb x8 0x6(x0)
+    # low byte of x8 (EE) lands in byte lane 2 (address 0x6 -> word 1, offset 2)
+    assert binary_to_hex(dut.data_memory.mem[1].value) == "00EE0000"
 
 @cocotb.test()
 async def cpu_insrt_test(dut):
@@ -461,3 +486,4 @@ async def cpu_insrt_test(dut):
     await test_sra(dut)
     await test_blt(dut)
     await test_jalr(dut)
+    await test_sb(dut)

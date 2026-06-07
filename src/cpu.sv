@@ -163,6 +163,18 @@ alu alu(
     .alu_last(alu_last)
 );
 
+//Byte Enable Decoder
+logic [31:0] mem_byte_enable;
+logic [31:0] mem_write_data;
+
+byte_enable_decoder byte_decoder (
+    .alu_result_address(alu_result),
+    .reg_read(read_reg2),
+    .func3(func3),
+    .byte_enable(mem_byte_enable),
+    .data(mem_write_data)
+);
+
 //Data Memory
 logic [31:0] mem_read;
 
@@ -171,9 +183,10 @@ memory #(
 ) data_memory (
     //Inputs
     .clk(clk),
-    .address(alu_result),
-    .write_data(read_reg2),
+    .address({alu_result[31:2], 2'b00}),
+    .write_data(mem_write_data),
     .write_enable(mem_write),
+    .byte_enable(mem_byte_enable),
     .rst_n(1'b1),
     //Output
     .read_data(mem_read)

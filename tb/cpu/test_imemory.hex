@@ -57,4 +57,6 @@ F0F9EB93  //ORI  TEST START :   ori  x23 x19 0xF0F  | x23 <= FFFFFF4F  (imm sign
 7AD00393  //                    addi x7 x0 0x7AD    | POISON @0xE0: skipped by the +0x8 offset
 00000013  //                    nop                 | (jumped over)
 22200E13  //                    addi x28 x0 0x222   | JALR LANDING @0xE8  | x28 <= 00000222
-00000013  //                    nop                 | FINAL NOP
+0EE00413  //SB TEST START :     addi x8 x0 0xEE     | x8 <= 000000EE  (clean value, makes SB self-contained)
+008020A3  //                    sw x8 0x1(x0)       | NO WRITE ! (mis-aligned !)
+00800323  //                    sb x8 0x6(x0)       | mem @ 0x4 <= 00EE0000

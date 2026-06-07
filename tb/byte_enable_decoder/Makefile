@@ -7,22 +7,17 @@ TOPLEVEL_LANG ?= verilog
 
 # 2. Define the Paths to your Source Code
 # $(PWD) is the current folder. We go up two levels to find the 'rtl' folder.
-VERILOG_SOURCES += $(PWD)/../../src/cpu.sv
-VERILOG_SOURCES += $(PWD)/../../src/control.sv
-VERILOG_SOURCES += $(PWD)/../../src/memory.sv
-VERILOG_SOURCES += $(PWD)/../../src/regfile.sv
-VERILOG_SOURCES += $(PWD)/../../src/signext.sv
-VERILOG_SOURCES += $(PWD)/../../src/alu.sv
+# Change 'module1.sv' to whatever your actual SystemVerilog file is named.
 VERILOG_SOURCES += $(PWD)/../../src/byte_enable_decoder.sv
 
 # 3. Define the Top-Level Module
 # This is the actual name of the module inside your .sv file (e.g., "module memory (...)")
-TOPLEVEL = cpu
+TOPLEVEL = byte_enable_decoder
 
 # 4. Define the Python Test Module
 # This is the name of your python file WITHOUT the .py extension
 # e.g. if your file is "test_module1.py", put "test_module1" here.
-MODULE = test_cpu
+MODULE = test_byte_enable_decoder
 
 # 5. Enable Waveforms (Trace)
 # Verilator is fast but lazy; it won't create waveforms unless we force it.
