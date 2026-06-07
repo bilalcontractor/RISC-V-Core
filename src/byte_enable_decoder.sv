@@ -37,6 +37,22 @@ always_comb begin
             endcase
         end
 
+        3'b001: begin 
+            //SH --> store half word
+            //Now bit mask masks bottom 16 bits instead of 8 since sh == store half word(16 bits)
+            case (offset) 
+                2'b00: begin
+                    byte_enable = 4'b0011;
+                    data = (reg_read & 32'h0000FFFF); 
+                end
+                2'b10: begin
+                    byte_enable = 4'b1100;
+                    data = (reg_read & 32'h0000FFFF) << 16; //shift 16 bits
+                end
+                default: byte_enable = 4'b0000;
+            endcase
+        end
+
         3'b010: begin //SW
             byte_enable = (offset == 2'b00) ? 4'b1111: 4'b0000;
             data = reg_read;
