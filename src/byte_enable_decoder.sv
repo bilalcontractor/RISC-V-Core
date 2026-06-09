@@ -1,7 +1,7 @@
-module byte_enable_decoder (
-    input logic [31:0] alu_result_address,
-    input logic [2:0] func3,
-    input logic [31:0] reg_read,
+module byte_enable_decoder import cpu_core_pkg::*; (
+    input  logic [31:0] alu_result_address,
+    input  logic [2:0] func3,
+    input  logic [31:0] reg_read,
     output logic [3:0] byte_enable,
     output logic [31:0] data
 );
@@ -13,9 +13,9 @@ assign offset = alu_result_address[1:0];
 always_comb begin
     case (func3)
         //SB. only writes the last byte of register(reg_read)
-        //32'h0000000FF acts as bit mask. Same as 0000...0000 1111 1111. 
+        //32'h0000000FF acts as bit mask. Same as 0000...0000 1111 1111.
         //Forces only last byte to be shifted in
-        3'b000, 3'b100: begin //SB, LB, LBU
+        F3_BYTE, F3_BYTE_U: begin //SB, LB, LBU
             case (offset)
                 2'b00: begin
                     byte_enable = 4'b0001;
@@ -37,7 +37,7 @@ always_comb begin
             endcase
         end
 
-        3'b001, 3'b101: begin //SH, LH, LHU
+        F3_HALFWORD, F3_HALFWORD_U: begin //SH, LH, LHU
             //SH --> store half word
             //Now bit mask masks bottom 16 bits instead of 8 since sh == store half word(16 bits)
             case (offset) 
@@ -53,7 +53,7 @@ always_comb begin
             endcase
         end
 
-        3'b010: begin //SW
+        F3_WORD: begin //SW
             byte_enable = (offset == 2'b00) ? 4'b1111: 4'b0000;
             data = reg_read;
         end

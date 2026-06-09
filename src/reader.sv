@@ -5,10 +5,10 @@
 // The reader does the inverse: it EXTRACTS the byte/half back down to bit 0 with
 //   (mem_data >> shift) & 32'h000000FF , then sign- or zero-extends it.
 
-module reader(
-    input logic [31:0] mem_data,
-    input logic [3:0] byte_enable,
-    input logic [2:0] func3,
+module reader import cpu_core_pkg::*; (
+    input  logic [31:0] mem_data,
+    input  logic [3:0] byte_enable,
+    input  logic [2:0] func3,
 
     output logic [31:0] write_back_data,
     output logic valid
@@ -28,7 +28,7 @@ always_comb begin
 
     case (func3)
         //LB, LBU --> load one byte. Mask keeps only the bottom byte after the shift.
-        3'b000, 3'b100: begin
+        F3_BYTE, F3_BYTE_U: begin
             case (byte_enable)
                 4'b0001: raw_data = (mem_data) & 32'h000000FF; //no shift
                 4'b0010: raw_data = (mem_data >> 8)  & 32'h000000FF; //one byte
@@ -41,7 +41,7 @@ always_comb begin
         end
 
         //LH, LHU --> load two bytes. Mask keeps the bottom half word after the shift.
-        3'b001, 3'b101: begin
+        F3_HALFWORD, F3_HALFWORD_U: begin
             case (byte_enable)
                 4'b0011: raw_data = (mem_data) & 32'h0000FFFF; //no shift
                 4'b1100: raw_data = (mem_data >> 16) & 32'h0000FFFF; //shift 16 bits
@@ -52,7 +52,7 @@ always_comb begin
         end
 
         //LW --> full word, no shifting or extending needed
-        3'b010: write_back_data = mem_data;
+        F3_WORD: write_back_data = mem_data;
 
         default: write_back_data = 32'b0;
     endcase

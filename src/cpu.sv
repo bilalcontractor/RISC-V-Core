@@ -1,4 +1,4 @@
-module cpu(
+module cpu import cpu_core_pkg::*; (
     input logic clk,
     input logic rst_n
 );
@@ -12,11 +12,11 @@ logic [31:0] pc_plus_four;
 assign pc_plus_four = pc + 4;
 
 always_comb begin
-    case(pc_source) 
-        2'b00: pc_next = pc_plus_four; 
-        2'b01: pc_next = pc_target; //a jump
-        2'b10: pc_next = alu_result; //jalr
-        default: pc_next = pc_plus_four;
+    case(pc_source)
+        PC_PLUS_4:     pc_next = pc_plus_four;
+        PC_TARGET:     pc_next = pc_target; //a jump
+        PC_ALU_RESULT: pc_next = alu_result; //jalr
+        default:       pc_next = pc_plus_four;
     endcase
 end
 
@@ -65,15 +65,15 @@ assign func7 = instruction[31:25];
 logic alu_zero;
 logic alu_last;
 //out of control
-logic [3:0] alu_control;
-logic [2:0] imm_source;
+alu_control_type alu_control;
+imm_source_type imm_source;
 logic mem_write;
 logic reg_write;
 //out muxes
 logic alu_source;
-logic [1:0] write_back_source;
+write_back_source_type write_back_source;
 
-logic [1:0] pc_source;
+pc_source_type pc_source;
 logic second_add_source;
 
 control control(
@@ -112,22 +112,22 @@ logic [31:0] write_back_data;
 always_comb begin
     case (write_back_source)
         //ALU result -> R-type ops (add, and, slt...) and I-type ALU ops (addi, ori...)
-        2'b00: begin
+        WB_ALU_RESULT: begin
             write_back_data = alu_result;
             wb_valid = 1'b1;
         end
         //Loaded data -> loads (lw/lb/lh/lbu/lhu); wb_valid drops if the load is misaligned
-        2'b01: begin
+        WB_MEM_READ: begin
             write_back_data = load_data;
             wb_valid = load_valid;
         end
         //Return address pc+4 -> jal and jalr write the link register (rd <= pc + 4)
-        2'b10: begin
+        WB_PC_PLUS_4: begin
             write_back_data = pc_plus_four;
             wb_valid = 1'b1;
         end
         //Second-adder output -> auipc (rd <= pc + imm) and lui (rd <= imm)
-        2'b11: begin
+        WB_SECOND_ADD: begin
             write_back_data = pc_target;
             wb_valid = 1'b1;
         end

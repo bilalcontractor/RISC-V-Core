@@ -7,6 +7,7 @@ TOPLEVEL_LANG ?= verilog
 
 # 2. Define the Paths to your Source Code
 # $(PWD) is the current folder. We go up two levels to find the 'rtl' folder.
+VERILOG_SOURCES += $(PWD)/../../packages/cpu_core_pkg.sv
 VERILOG_SOURCES += $(PWD)/../../src/cpu.sv
 VERILOG_SOURCES += $(PWD)/../../src/control.sv
 VERILOG_SOURCES += $(PWD)/../../src/memory.sv

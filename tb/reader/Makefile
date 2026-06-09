@@ -8,6 +8,7 @@ TOPLEVEL_LANG ?= verilog
 # 2. Define the Paths to your Source Code
 # $(PWD) is the current folder. We go up two levels to find the 'rtl' folder.
 # Change 'module1.sv' to whatever your actual SystemVerilog file is named.
+VERILOG_SOURCES += $(PWD)/../../packages/cpu_core_pkg.sv
 VERILOG_SOURCES += $(PWD)/../../src/reader.sv
 
 # 3. Define the Top-Level Module
