@@ -31,10 +31,7 @@ always_ff @(posedge clk) begin
     else if (write_enable) begin
         //ensure the address is aligned to a word boundary
         //if not, we ignore the write
-        if (address[1:0] != 2'b00) begin
-            $display("Misaligned bits at address %h", address);
-        end 
-        else begin
+        if (address[1:0] == 2'b00) begin
             //use byte-enable to write bytes
             for (int i = 0; i < 4; i++) begin
                 if (byte_enable[i]) begin

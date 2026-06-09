@@ -60,3 +60,12 @@ F0F9EB93  //ORI  TEST START :   ori  x23 x19 0xF0F  | x23 <= FFFFFF4F  (imm sign
 0EE00413  //SB TEST START :     addi x8 x0 0xEE     | x8 <= 000000EE  (clean value, makes SB self-contained)
 008020A3  //                    sw x8 0x1(x0)       | NO WRITE ! (mis-aligned !)
 00800323  //                    sb x8 0x6(x0)       | mem @ 0x4 <= 00EE0000
+00800503  //LOAD TEST START :    lb   x10 0x8(x0)    | byte EF (neg)   -> x10 = FFFFFFEF
+00804583  //                     lbu  x11 0x8(x0)    | byte EF         -> x11 = 000000EF
+01800603  //                     lb   x12 0x18(x0)   | byte 6A (pos)   -> x12 = 0000006A
+00801683  //                     lh   x13 0x8(x0)    | half BEEF (neg) -> x13 = FFFFBEEF
+00805703  //                     lhu  x14 0x8(x0)    | half BEEF       -> x14 = 0000BEEF
+00A01783  //                     lh   x15 0xA(x0)    | half DEAD (neg) -> x15 = FFFFDEAD
+00A05803  //                     lhu  x16 0xA(x0)    | half DEAD       -> x16 = 0000DEAD
+12300893  //                     addi x17 x0 0x123   | x17 <= 00000123  (set up squash test)
+00901883  //                     lh   x17 0x9(x0)    | MISALIGNED -> write squashed, x17 stays 00000123

@@ -451,6 +451,52 @@ async def test_sb(dut):
     # low byte of x8 (EE) lands in byte lane 2 (address 0x6 -> word 1, offset 2)
     assert binary_to_hex(dut.data_memory.mem[1].value) == "00EE0000"
 
+async def test_load(dut):
+    # Partial loads. dmem @ 0x8 = DEADBEEF, dmem @ 0x18 = 7F4FD46A (set by earlier tests).
+    # DEADBEEF gives negative bytes/halves to exercise sign extension; 7F4FD46A gives a
+    # positive byte. The final misaligned lh checks that wb_valid squashes the reg write.
+    # 00800503  lb   x10 0x8(x0)   | byte EF (neg)   -> FFFFFFEF
+    # 00804583  lbu  x11 0x8(x0)   | byte EF         -> 000000EF
+    # 01800603  lb   x12 0x18(x0)  | byte 6A (pos)   -> 0000006A
+    # 00801683  lh   x13 0x8(x0)   | half BEEF (neg) -> FFFFBEEF
+    # 00805703  lhu  x14 0x8(x0)   | half BEEF       -> 0000BEEF
+    # 00A01783  lh   x15 0xA(x0)   | half DEAD (neg) -> FFFFDEAD
+    # 00A05803  lhu  x16 0xA(x0)   | half DEAD       -> 0000DEAD
+    # 12300893  addi x17 x0 0x123  | x17 <= 00000123
+    # 00901883  lh   x17 0x9(x0)   | MISALIGNED -> squashed, x17 stays 00000123
+    print("\n\nTESTING LOADS (lb/lbu/lh/lhu)\n\n")
+
+    # The first load is the freshly fetched instruction
+    assert binary_to_hex(dut.instruction.value) == "00800503"
+
+    await RisingEdge(dut.clk) # lb x10 0x8(x0): byte EF, sign-extended
+    assert binary_to_hex(dut.regfile.registers[10].value) == "FFFFFFEF"
+
+    await RisingEdge(dut.clk) # lbu x11 0x8(x0): same byte, zero-extended
+    assert binary_to_hex(dut.regfile.registers[11].value) == "000000EF"
+
+    await RisingEdge(dut.clk) # lb x12 0x18(x0): byte 6A is positive, no sign bit
+    assert binary_to_hex(dut.regfile.registers[12].value) == "0000006A"
+
+    await RisingEdge(dut.clk) # lh x13 0x8(x0): half BEEF, sign-extended
+    assert binary_to_hex(dut.regfile.registers[13].value) == "FFFFBEEF"
+
+    await RisingEdge(dut.clk) # lhu x14 0x8(x0): same half, zero-extended
+    assert binary_to_hex(dut.regfile.registers[14].value) == "0000BEEF"
+
+    await RisingEdge(dut.clk) # lh x15 0xA(x0): high half DEAD (offset 2), sign-extended
+    assert binary_to_hex(dut.regfile.registers[15].value) == "FFFFDEAD"
+
+    await RisingEdge(dut.clk) # lhu x16 0xA(x0): same high half, zero-extended
+    assert binary_to_hex(dut.regfile.registers[16].value) == "0000DEAD"
+
+    await RisingEdge(dut.clk) # addi x17 x0 0x123: seed a known value for the squash test
+    assert binary_to_hex(dut.regfile.registers[17].value) == "00000123"
+
+    await RisingEdge(dut.clk) # lh x17 0x9(x0): misaligned -> byte_enable 0, valid 0
+    # wb_valid drops, so reg_write is gated off and x17 keeps its previous value
+    assert binary_to_hex(dut.regfile.registers[17].value) == "00000123"
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Runs the full instruction datapath test"""
@@ -487,3 +533,4 @@ async def cpu_insrt_test(dut):
     await test_blt(dut)
     await test_jalr(dut)
     await test_sb(dut)
+    await test_load(dut)

@@ -46,6 +46,7 @@ memory #(
     .address(pc),
     .write_data(32'b0),
     .write_enable(1'b0),
+    .byte_enable(mem_byte_enable),
     .rst_n(1'b1),
     .read_data(instruction) //output
 );
@@ -105,15 +106,31 @@ assign destination = instruction[11:7];
 logic [31:0] read_reg1;
 logic [31:0] read_reg2;
 
-
+//Pick the value (and its validity) written back to the destination register.
+logic wb_valid;
 logic [31:0] write_back_data;
 always_comb begin
-    case (write_back_source) 
-        2'b00: write_back_data = alu_result; //R type, 
-        2'b01: write_back_data = mem_read; //load value from memory(lw)
-        2'b10: write_back_data = pc_plus_four; //J type(jal)
-        2'b11: write_back_data = pc_target;
-        default: write_back_data = alu_result;
+    case (write_back_source)
+        //ALU result -> R-type ops (add, and, slt...) and I-type ALU ops (addi, ori...)
+        2'b00: begin
+            write_back_data = alu_result;
+            wb_valid = 1'b1;
+        end
+        //Loaded data -> loads (lw/lb/lh/lbu/lhu); wb_valid drops if the load is misaligned
+        2'b01: begin
+            write_back_data = load_data;
+            wb_valid = load_valid;
+        end
+        //Return address pc+4 -> jal and jalr write the link register (rd <= pc + 4)
+        2'b10: begin
+            write_back_data = pc_plus_four;
+            wb_valid = 1'b1;
+        end
+        //Second-adder output -> auipc (rd <= pc + imm) and lui (rd <= imm)
+        2'b11: begin
+            write_back_data = pc_target;
+            wb_valid = 1'b1;
+        end
     endcase
 end
 
@@ -127,7 +144,7 @@ regfile regfile(
     .read_data1(read_reg1),
     .read_data2(read_reg2),
     //Write In
-    .write_enable(reg_write),
+    .write_enable(reg_write & wb_valid), //squash the write if the load is invalid (misaligned)
     .write_data(write_back_data),
     .address3(destination)
 );
@@ -164,7 +181,7 @@ alu alu(
 );
 
 //Byte Enable Decoder
-logic [31:0] mem_byte_enable;
+logic [3:0] mem_byte_enable;
 logic [31:0] mem_write_data;
 
 byte_enable_decoder byte_decoder (
@@ -190,6 +207,20 @@ memory #(
     .rst_n(1'b1),
     //Output
     .read_data(mem_read)
+);
+
+//Reader
+//Processes the raw word from data memory into the value loaded into a register:
+//selects the byte/half lane (byte_enable), then sign- or zero-extends it (func3).
+logic [31:0] load_data;  //the processed load result, fed to the write-back mux
+logic load_valid;        //low when the load is misaligned -> write-back is squashed
+
+reader reader(
+    .mem_data(mem_read),
+    .byte_enable(mem_byte_enable),
+    .func3(func3),
+    .write_back_data(load_data),
+    .valid(load_valid)
 );
 
 endmodule
