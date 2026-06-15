@@ -1,5 +1,5 @@
 module memory #(
-    parameter WORDS = 128,
+    parameter WORDS = 1024,
     parameter mem_init = ""
 ) (
     input logic clk,
@@ -12,9 +12,12 @@ module memory #(
     output logic [31:0] read_data
 );
 
+    //min number of address bits needed to index every WORD (7 bits for 128 words)
+    localparam INDEX_W = $clog2(WORDS);
+
     //array of length WORDS, each index 32 bit vector
     //essentially a 2D array
-    logic [31:0] mem [0:WORDS - 1]; 
+    logic [31:0] mem [0:WORDS - 1];
 
     initial begin 
         $readmemh(mem_init, mem); //load memmory for simulation
@@ -35,16 +38,16 @@ module memory #(
                 //use byte-enable to write bytes
                 for (int i = 0; i < 4; i++) begin
                     if (byte_enable[i]) begin
-                        //address[8:2] is the specific WORD index (128 words -> 7 bits).
+                        //address[INDEX_W+1:2] is the specific WORD index (scales with WORDS).
                         //(i*8+:8) --> start at variable location, go 8 bits upward
                         //only write the bytes that the byte mask enable(byte_enable)
-                        mem[address[8:2]][(i*8)+:8] <= write_data[(i*8)+:8];
+                        mem[address[INDEX_W+1:2]][(i*8)+:8] <= write_data[(i*8)+:8];
                     end
                 end
             end
         end
     end
 
-    assign read_data = mem[address[8:2]];
+    assign read_data = mem[address[INDEX_W+1:2]];
 
 endmodule

@@ -1,5 +1,6 @@
 module cache import cpu_core_pkg::*; #(
-    parameter CACHE_SIZE = 128
+    parameter CACHE_SIZE = 128,
+    parameter NUM_SETS = 16
 )(
     //CPU Logic Clock and Reset
     input logic clk,
@@ -29,15 +30,19 @@ module cache import cpu_core_pkg::*; #(
     assign set_ptr_out = set_ptr;
     assign next_set_ptr_out = next_set_ptr;
 
+    localparam WORDS_PER_LINE = CACHE_SIZE / NUM_SETS;
+    localparam WORD_WIDTH = $clog2(WORDS_PER_LINE);
+    localparam SET_WIDTH = $clog2(NUM_SETS);
+
     //How each cache line is organized:
     // DIRTY | VALID | BLOCK TAG | INDEX/SET | OFFSET | DATA
 
-    logic [CACHE_SIZE-1:0][31:0] cache_data;
-    logic [31:9] cache_block_tag;
-    logic is_cache_valid;
-    logic is_next_cache_valid;
-    logic is_cache_dirty;
-    logic is_next_cache_dirty;
+    logic [NUM_SETS-1:0][WORDS_PER_LINE-1:0][31:0] cache_data;
+    logic [NUM_SETS-1:0][31:9] cache_block_tag; //one tag per set
+    logic [NUM_SETS-1:0] is_cache_valid;
+    logic [NUM_SETS-1:0] is_next_cache_valid;
+    logic [NUM_SETS-1:0] is_cache_dirty;
+    logic [NUM_SETS-1:0] is_next_cache_dirty;
     //remember why we are writing back: a miss eviction or a CSR flush order
     logic csr_flushing;
     logic next_csr_flushing;
@@ -45,8 +50,10 @@ module cache import cpu_core_pkg::*; #(
     //incoming cache reqest signals
     logic [31:9] request_block_tag;
     assign request_block_tag = address[31:9];
-    logic [8:2] request_index;
-    assign request_index = address[8:2];
+    logic [4:2] request_word;
+    assign request_word = address[4:2];
+    logic [8:5] request_set;
+    assign request_set = address[8:5];
 
     logic [31:0] byte_enable_mask; //Only want to write specific bytes on a WORD based on byte_enable
     assign byte_enable_mask = {
@@ -58,11 +65,10 @@ module cache import cpu_core_pkg::*; #(
 
     //Hit logic
     logic hit;
+    //valid, and the requested tag matches the tag stored in that set
+    assign hit = (request_block_tag == cache_block_tag[request_set]) && is_cache_valid[request_set];
 
-    //valid, and the requested tag matches the caches actual tag
-    assign hit = (request_block_tag == cache_block_tag) && is_cache_valid;
-
-    //Stall logic: stall while a transaction is in flight, or on a fresh miss
+    //Stall logic: stall while operations are running, or on a fresh miss
     logic comb_stall, seq_stall;
     assign comb_stall = (next_state != IDLE) | (~hit & (read_enable | actual_write_enable));
     assign cache_stall = comb_stall | seq_stall;
@@ -72,8 +78,8 @@ module cache import cpu_core_pkg::*; #(
 
     always_ff @(posedge clk) begin //We actually write or refresh the cache here
         if (~rst_n) begin
-            is_cache_valid <= 1'b0;
-            is_cache_dirty <= 1'b0;
+            is_cache_valid <= '0; //invalidate every set
+            is_cache_dirty <= '0;
             seq_stall <= 1'b0;
             csr_flushing <= 1'b0;
         end
@@ -83,27 +89,28 @@ module cache import cpu_core_pkg::*; #(
             seq_stall <= comb_stall;
             csr_flushing <= next_csr_flushing;
 
-            if (hit & write_enable & state == IDLE) begin //Begin a write to the cache
-                cache_data[request_index] <=
-                    (cache_data[request_index] & ~byte_enable_mask) | //preserve the old data
+            if (hit & write_enable & state == IDLE) begin //Begin a write to the hitting set
+                cache_data[request_set][request_word] <=
+                    (cache_data[request_set][request_word] & ~byte_enable_mask) | //preserve the old data
                     (write_data & byte_enable_mask); //combine with the new data
-                is_cache_dirty <= 1'b1; //just modified the cache, so its now dirty
+               
+                is_cache_dirty[request_set] <= 1'b1; //just modified this set, so its now dirty
             end
 
             //refill from memory: a beat transfers only when rvalid & rready are both high
             else if (axi.rvalid & state == RECIEVING_READ_DATA & axi.rready) begin
-                //capture this beat into the line; set_ptr advances per beat across the burst
-                cache_data[set_ptr] <= axi.rdata;
+                //capture this beat into the refilling set; set_ptr is the word offset in the line
+                cache_data[request_set][set_ptr] <= axi.rdata;
                 if (axi.rready & axi.rlast) begin //rlast marks the final beat: line is now fully loaded
-                    cache_block_tag <= request_block_tag; //stamp the tag so future lookups hit
-                    is_cache_dirty <= 1'b0; //loaded straight from memory, so the line is clean
+                    cache_block_tag[request_set] <= request_block_tag; //stamp the tag so future lookups hit
+                    is_cache_dirty[request_set] <= 1'b0; //loaded straight from memory, so the line is clean
                 end
             end
         end
     end
 
-    logic [6:0] set_ptr;
-    logic [6:0] next_set_ptr;
+    logic [WORD_WIDTH-1:0] set_ptr; //word offset counter within a line, advances per AXI beat
+    logic [WORD_WIDTH-1:0] next_set_ptr;
 
     logic actual_write_enable;
     assign actual_write_enable = write_enable & |byte_enable;
@@ -111,7 +118,7 @@ module cache import cpu_core_pkg::*; #(
     always_ff @(posedge aclk) begin //AXI clock driven seq logic
         if (~rst_n) begin
             state <= IDLE;
-            set_ptr <= 7'b0;
+            set_ptr <= '0;
         end
         else begin
             state <= next_state;
@@ -128,7 +135,7 @@ module cache import cpu_core_pkg::*; #(
         next_csr_flushing = csr_flushing; //hold the flush flag by default
         axi.wlast = 1'b0;
 
-        axi.wdata = cache_data[set_ptr];
+        axi.wdata = cache_data[request_set][set_ptr]; //word being written back from the evicted set
         cache_state = state;
         next_set_ptr = set_ptr;
 
@@ -138,7 +145,7 @@ module cache import cpu_core_pkg::*; #(
                 if (read_enable && write_enable) $display("ERROR, CAN'T READ AND WRITE AT THE SAME TIME!!!");
 
                 //we successfully read
-                else if (hit && read_enable) read_data = cache_data[request_index];
+                else if (hit && read_enable) read_data = cache_data[request_set][request_word];
 
                 //CSR ordered a flush: force a write-back and skip the read-back afterwards
                 else if (csr_flush_order) begin
@@ -148,8 +155,8 @@ module cache import cpu_core_pkg::*; #(
 
                 //we missed and we tried to either read or write to cache
                 else if (~hit && (read_enable | actual_write_enable)) begin
-                    //if dirty, we have to write
-                    next_state = (is_cache_dirty) ? SENDING_WRITE_REQUEST : SENDING_READ_REQUEST;
+                    //if this set's line is dirty, we have to write it back first
+                    next_state = (is_cache_dirty[request_set]) ? SENDING_WRITE_REQUEST : SENDING_READ_REQUEST;
                 end
 
                 // IDLE AXI SIGNALS : no request
@@ -162,12 +169,13 @@ module cache import cpu_core_pkg::*; #(
                 axi.rready = 1'b0;
 
                 // Defaults to 0
-                next_set_ptr = 7'b0;
+                next_set_ptr = '0;
             end
 
             SENDING_WRITE_REQUEST: begin
                 // HANDLE MISS WITH DIRTY CACHE : write the CURRENT line back to memory first
-                axi.awaddr = {cache_block_tag, 7'b0000000, 2'b00}; // tag, set, offset
+                // old tag + same set : where the evicted block lives in memory
+                axi.awaddr = {cache_block_tag[request_set], request_set, {WORD_WIDTH{1'b0}}, 2'b00}; // tag, set, offset
 
                 if (axi.awready) next_state = SENDING_WRITE_DATA;
 
@@ -184,7 +192,7 @@ module cache import cpu_core_pkg::*; #(
             SENDING_WRITE_DATA: begin
                 if (axi.wready) next_set_ptr = set_ptr + 1;
 
-                if (set_ptr == 7'd127) begin
+                if (set_ptr == WORDS_PER_LINE-1) begin
                     axi.wlast = 1'b1;
                     if (axi.wready) next_state = WAITING_WRITE_RECIEVE;
                 end
@@ -227,7 +235,8 @@ module cache import cpu_core_pkg::*; #(
 
             SENDING_READ_REQUEST : begin
                 // HANDLE MISS : Read
-                axi.araddr = {request_block_tag, 7'b0000000, 2'b00}; // tag, set, offset
+                // new tag + same set : where the requested block lives in memory
+                axi.araddr = {request_block_tag, request_set, {WORD_WIDTH{1'b0}}, 2'b00}; // tag, set, offset
 
                 if(axi.arready) begin
                     next_state = RECIEVING_READ_DATA;
@@ -252,7 +261,7 @@ module cache import cpu_core_pkg::*; #(
                     if (axi.rlast) begin
                         // Transition to IDLE on the last beat
                         next_state = IDLE;
-                        is_next_cache_valid = 1'b1;
+                        is_next_cache_valid[request_set] = 1'b1; //this set now holds a valid line
                     end
                 end
 
@@ -273,11 +282,11 @@ module cache import cpu_core_pkg::*; #(
     // ADDRESS CHANNELS
     // -----------------
     // WRITE Burst sizes are fixed type & len
-    assign axi.awlen = CACHE_SIZE-1; // full cache reloaded each time
+    assign axi.awlen = WORDS_PER_LINE-1; // one line transferred each time
     assign axi.awsize = 3'b010; // 2^<awsize> = 2^2 = 4 Bytes
     assign axi.awburst = 2'b01; // INCREMENT
     // READ Burst sizes are fixed type & len
-    assign axi.arlen = CACHE_SIZE-1; // full cache reloaded each time
+    assign axi.arlen = WORDS_PER_LINE-1; // one line transferred each time
     assign axi.arsize = 3'b010; // 2^<arsize> = 2^2 = 4 Bytes
     assign axi.arburst = 2'b01; // INCREMENT
     // W/R ids are always 0 
