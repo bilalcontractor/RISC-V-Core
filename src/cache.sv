@@ -27,8 +27,8 @@ module cache import cpu_core_pkg::*; #(
     output logic [6:0] next_set_ptr_out
 );
 
-    assign set_ptr_out = set_ptr;
-    assign next_set_ptr_out = next_set_ptr;
+    assign set_ptr_out = 7'(set_ptr);          //zero-extend the 3-bit counter to the debug port
+    assign next_set_ptr_out = 7'(next_set_ptr);
 
     localparam WORDS_PER_LINE = CACHE_SIZE / NUM_SETS;
     localparam WORD_WIDTH = $clog2(WORDS_PER_LINE);
@@ -139,6 +139,16 @@ module cache import cpu_core_pkg::*; #(
         cache_state = state;
         next_set_ptr = set_ptr;
 
+        //default request signals so no path leaves them unassigned (avoids latches)
+        axi.awvalid = 1'b0;
+        axi.wvalid  = 1'b0;
+        axi.bready  = 1'b0;
+        axi.arvalid = 1'b0;
+        axi.rready  = 1'b0;
+        axi.araddr  = 32'b0;
+        axi.awaddr  = 32'b0;
+        read_data   = 32'b0;
+
         case (state)
             IDLE: begin
                 //can't do both at once
@@ -192,7 +202,7 @@ module cache import cpu_core_pkg::*; #(
             SENDING_WRITE_DATA: begin
                 if (axi.wready) next_set_ptr = set_ptr + 1;
 
-                if (set_ptr == WORDS_PER_LINE-1) begin
+                if (set_ptr == WORD_WIDTH'(WORDS_PER_LINE-1)) begin
                     axi.wlast = 1'b1;
                     if (axi.wready) next_state = WAITING_WRITE_RECIEVE;
                 end

@@ -1,5 +1,3 @@
-# test_memory.py
-
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
