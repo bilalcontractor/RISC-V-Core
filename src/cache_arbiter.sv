@@ -1,4 +1,4 @@
-import holy_core_pkg::*;
+import cpu_core_pkg::*;
 
 // cache_arbiter : merges the I$ and D$ AXI interfaces onto the single
 // external memory bus. Acts as a SLAVE to each cache (it pretends to be
@@ -6,15 +6,15 @@ import holy_core_pkg::*;
 // is connected to m_axi at a time; the instruction cache wins ties.
 module cache_arbiter (
     // Master interface facing real memory (arbiter drives requests OUT here)
-    axi_if.master m_axi,
+    axi_interface.master m_axi,
 
     // Slave interfaces facing the caches. To each cache the arbiter looks
     // like its private memory. *_cache_state tells us if that cache wants
     // the bus (anything other than IDLE == needs the bus).
-    axi_if.slave s_axi_instruction,
-    input cache_state_t i_cache_state,
-    axi_if.slave s_axi_data,
-    input cache_state_t d_cache_state
+    axi_interface.slave s_axi_instruction,
+    input cache_state_type i_cache_state,
+    axi_interface.slave s_axi_data,
+    input cache_state_type d_cache_state
 );
 
 // The request controller simply muxes the transactions until they are done

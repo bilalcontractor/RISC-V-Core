@@ -1,4 +1,3 @@
-// =============================================================================
 // Test wrapper for the cache.
 //
 // cocotbext-axi's AxiRam needs FLAT top-level AXI signals (axi_awvalid, ...),
@@ -9,7 +8,6 @@
 //   * splits the axi_interface into flat master signals for cocotbext-axi,
 //   * surfaces the cache_state / set_ptr debug taps as top-level ports so the
 //     testbench does not have to reach into internals for them.
-// =============================================================================
 module cache_axi_wrapper import cpu_core_pkg::*; #(
     parameter CACHE_SIZE = 128,
     parameter NUM_SETS   = 16
