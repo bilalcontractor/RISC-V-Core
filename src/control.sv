@@ -8,6 +8,7 @@ module control import cpu_core_pkg::*; (
     output alu_control_type alu_control,
     output imm_source_type imm_source,
     output logic mem_write,
+    output logic mem_read,
     output logic reg_write,
     output logic alu_source,
     output write_back_source_type write_back_source,
@@ -32,6 +33,7 @@ module control import cpu_core_pkg::*; (
         jump = 1'b0;
         second_add_source = 1'b0;
         jalr = 1'b0;
+        mem_read = 1'b0;
         case (op)
             //I type(lw)
             OPCODE_I_TYPE_LOAD : begin //opcode for load
@@ -43,6 +45,7 @@ module control import cpu_core_pkg::*; (
                 write_back_source = WB_MEM_READ; //mem_read, the loaded data
                 branch = 1'b0;
                 jump = 1'b0;
+                mem_read = 1'b1;
             end
             //S type(sw)
             OPCODE_S_TYPE : begin //opcode

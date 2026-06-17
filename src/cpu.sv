@@ -1,6 +1,11 @@
+`timescale 1ns/1ps
+
 module cpu import cpu_core_pkg::*; (
     input logic clk,
-    input logic rst_n
+    input logic rst_n,
+    // Single external memory bus. The instruction and data caches each master
+    // their own AXI interface; the arbiter merges them onto this one port.
+    axi_interface.master m_axi
 );
 
     //Program counter(pc)
@@ -30,29 +35,24 @@ module cpu import cpu_core_pkg::*; (
     always_ff @(posedge clk) begin
         if (rst_n == 0) begin
             pc <= 32'b0;
-        end else begin
+        end else if (~global_stall) begin
+            //freeze the PC while either cache is busy (miss / write-back in flight)
             pc <= pc_next;
         end
     end
 
-    //Instruction memory
+    //Global stall: high whenever the instruction or data cache cannot complete
+    //its access this cycle. It freezes the PC and squashes the register write so
+    //the same instruction is retried until both caches are ready.
+    logic i_cache_stall;
+    logic d_cache_stall;
+    logic global_stall;
+    assign global_stall = i_cache_stall | d_cache_stall;
 
-    logic [31:0] instruction; 
-
-    memory #(
-        .mem_init("./test_imemory.hex")
-    ) instruction_memory (
-        .clk(clk),
-        .address(pc),
-        .write_data(32'b0),
-        .write_enable(1'b0),
-        .byte_enable(mem_byte_enable),
-        .rst_n(1'b1),
-        .read_data(instruction) //output
-    );
+    //Instruction word fetched from the instruction cache (driven by instruction_cache below)
+    logic [31:0] instruction;
 
     //Control
-
     //Generate control signals from instruction data in control unit
     logic [6:0] op; //opcode
     assign op = instruction[6:0];
@@ -76,6 +76,8 @@ module cpu import cpu_core_pkg::*; (
     pc_source_type pc_source;
     logic second_add_source;
 
+    logic mem_read_enable;
+
     control control(
         .op(op),
         .func3(func3),
@@ -86,6 +88,7 @@ module cpu import cpu_core_pkg::*; (
         .alu_control(alu_control),
         .imm_source(imm_source),
         .mem_write(mem_write),
+        .mem_read(mem_read_enable),
         .reg_write(reg_write),
         //Muxes out
         .alu_source(alu_source),
@@ -144,7 +147,8 @@ module cpu import cpu_core_pkg::*; (
         .read_data1(read_reg1),
         .read_data2(read_reg2),
         //Write In
-        .write_enable(reg_write & wb_valid), //squash the write if the load is invalid (misaligned)
+        //stop the write if the load is invalid (misaligned) or while stalled (data not ready yet)
+        .write_enable(reg_write & wb_valid & ~global_stall),
         .write_data(write_back_data),
         .address3(destination)
     );
@@ -202,19 +206,72 @@ module cpu import cpu_core_pkg::*; (
         .load_valid(load_valid)
     );
 
-    //Data Memory
-    memory #(
-        .mem_init("./test_dmemory.hex")
-    ) data_memory (
-        //Inputs
+    //Caches + AXI arbiter
+    //Each cache masters its own AXI interface; the arbiter merges the two onto
+    //the single external m_axi bus, granting the instruction cache priority.
+    axi_interface i_cache_axi(); //instruction cache <-> arbiter
+    axi_interface d_cache_axi(); //data cache <-> arbiter
+
+    cache_state_type i_cache_state; //drives arbitration: non-IDLE means "I want the bus"
+    cache_state_type d_cache_state;
+
+    //Instruction cache: read-only, always fetching the word at the PC.
+    cache instruction_cache (
         .clk(clk),
-        .address({alu_result[31:2], 2'b00}),
+        .rst_n(rst_n),
+        .aclk(clk), //AXI clock tied to the CPU clock to keep timing simple
+
+        //CPU connection
+        .address(pc),
+        .write_data(32'd0),
+        .read_enable(1'b1),
+        .write_enable(1'b0),
+        .byte_enable(4'd0),
+        .csr_flush_order(1'b0), //never flushed by a CSR
+        .read_data(instruction),
+        .cache_stall(i_cache_stall),
+
+        //AXI request connection (to the arbiter)
+        .axi(i_cache_axi.master),
+        .cache_state(i_cache_state),
+
+        //debug taps (unused at the core level)
+        .set_ptr_out(),
+        .next_set_ptr_out()
+    );
+
+    //Data cache: serves loads and stores from the datapath / LSU.
+    cache data_cache (
+        .clk(clk),
+        .rst_n(rst_n),
+        .aclk(clk),
+
+        //CPU connection
+        .address(alu_result),
         .write_data(mem_write_data),
+        .read_enable(mem_read_enable),
         .write_enable(mem_write),
         .byte_enable(mem_byte_enable),
-        .rst_n(1'b1),
-        //Output
-        .read_data(mem_read)
+        .csr_flush_order(1'b0), //no CSR flush support yet
+        .read_data(mem_read),
+        .cache_stall(d_cache_stall),
+
+        //AXI request connection (to the arbiter)
+        .axi(d_cache_axi.master),
+        .cache_state(d_cache_state),
+
+        //debug taps (unused at the core level)
+        .set_ptr_out(),
+        .next_set_ptr_out()
+    );
+
+    //Arbiter: muxes the two cache interfaces onto the single external bus.
+    cache_arbiter arbiter (
+        .m_axi(m_axi),
+        .s_axi_instruction(i_cache_axi.slave),
+        .i_cache_state(i_cache_state),
+        .s_axi_data(d_cache_axi.slave),
+        .d_cache_state(d_cache_state)
     );
 
 endmodule
