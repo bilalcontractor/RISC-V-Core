@@ -16,6 +16,7 @@ VERILOG_SOURCES += $(PWD)/../../src/signext.sv
 VERILOG_SOURCES += $(PWD)/../../src/alu.sv
 VERILOG_SOURCES += $(PWD)/../../src/byte_enable_decoder.sv
 VERILOG_SOURCES += $(PWD)/../../src/reader.sv
+VERILOG_SOURCES += $(PWD)/../../src/load_store_unit.sv
 
 # 3. Define the Top-Level Module
 # This is the actual name of the module inside your .sv file (e.g., "module memory (...)")

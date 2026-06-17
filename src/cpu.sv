@@ -180,21 +180,29 @@ module cpu import cpu_core_pkg::*; (
         .alu_last(alu_last)
     );
 
-    //Byte Enable Decoder
-    logic [3:0] mem_byte_enable;
-    logic [31:0] mem_write_data;
+    //Load/Store Unit
+    //Wraps the store-side byte_enable_decoder and the load-side reader. It sits
+    //around the data memory: it produces the aligned write data + byte_enable on
+    //the store path, and turns the raw word read back into the value written to a
+    //register on the load path.
+    logic [3:0]  mem_byte_enable; //write mask + load-lane select (LSU -> memory & reader)
+    logic [31:0] mem_write_data;  //store data, aligned into its lane (LSU -> memory)
+    logic [31:0] mem_read;        //raw word read back from memory (memory -> LSU)
+    logic [31:0] load_data;       //the processed load result, fed to the write-back mux
+    logic load_valid;             //low when the load is misaligned -> write-back is squashed
 
-    byte_enable_decoder byte_decoder (
+    load_store_unit lsu (
         .alu_result_address(alu_result),
         .reg_read(read_reg2),
         .func3(func3),
+        .mem_data(mem_read),
         .byte_enable(mem_byte_enable),
-        .data(mem_write_data)
+        .write_data(mem_write_data),
+        .load_data(load_data),
+        .load_valid(load_valid)
     );
 
     //Data Memory
-    logic [31:0] mem_read;
-
     memory #(
         .mem_init("./test_dmemory.hex")
     ) data_memory (
@@ -207,20 +215,6 @@ module cpu import cpu_core_pkg::*; (
         .rst_n(1'b1),
         //Output
         .read_data(mem_read)
-    );
-
-    //Reader
-    //Processes the raw word from data memory into the value loaded into a register:
-    //selects the byte/half lane (byte_enable), then sign- or zero-extends it (func3).
-    logic [31:0] load_data;  //the processed load result, fed to the write-back mux
-    logic load_valid;        //low when the load is misaligned -> write-back is squashed
-
-    reader reader(
-        .mem_data(mem_read),
-        .byte_enable(mem_byte_enable),
-        .func3(func3),
-        .write_back_data(load_data),
-        .valid(load_valid)
     );
 
 endmodule
