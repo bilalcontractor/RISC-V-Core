@@ -102,6 +102,12 @@ package cpu_core_pkg;
         PC_ALU_RESULT = 2'b10  //jalr
     } pc_source_type;
 
+    // CSR addresses (machine-mode, custom read-write region 0x7C0-0x7FF)
+    typedef enum logic [11:0] {
+        CSR_FLUSH_CACHE = 12'h7C0
+        // future CSRs ...
+    } csr_address_type;
+
     typedef enum logic [2:0] {
         IDLE,                  //cache is not doing anything . stall not asserted
         SENDING_WRITE_REQUEST, //cache missed and cache was dirty. currently sending write request to memory
