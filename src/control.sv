@@ -13,7 +13,9 @@ module control import cpu_core_pkg::*; (
     output logic alu_source,
     output write_back_source_type write_back_source,
     output pc_source_type pc_source,
-    output logic second_add_source
+    output logic second_add_source,
+    output logic csr_write_back_source,
+    output logic csr_write_enable
 );
 
     //Main Decoder
@@ -34,6 +36,8 @@ module control import cpu_core_pkg::*; (
         second_add_source = 1'b0;
         jalr = 1'b0;
         mem_read = 1'b0;
+        csr_write_enable = 1'b0;
+        csr_write_back_source = 1'b0;
         case (op)
             //I type(lw)
             OPCODE_I_TYPE_LOAD : begin //opcode for load
@@ -122,6 +126,16 @@ module control import cpu_core_pkg::*; (
                 jump = 1'b0; //Want jalr, not jump
                 jalr = 1'b1;
             end
+            //CSR instructions
+            OPCODE_CSR: begin
+                imm_source = IMM_CSR_TYPE;
+                mem_write = 1'b0;
+                reg_write = 1'b1;
+                write_back_source = WB_CSR_READ;
+                //Determine write back source from MSB of func3
+                csr_write_back_source = func3[2];
+                csr_write_enable = 1'b1;
+            end
             default: begin
                 reg_write = 1'b0;
                 imm_source = IMM_I_TYPE;
@@ -140,7 +154,7 @@ module control import cpu_core_pkg::*; (
             //R types, I types
             ALU_OP_MATH : begin
                 case (func3)
-                    F3_ADD_SUB: begin
+                    FUNC3_ADD_SUB: begin
                         // Either R type(add or sub) or I type(addi)
                         if (op == OPCODE_R_TYPE) begin //If R type
                             alu_control = func7[5] ? ALU_SUB : ALU_ADD; //SUB : ADD
@@ -148,22 +162,22 @@ module control import cpu_core_pkg::*; (
                             alu_control = ALU_ADD; //ADDI
                         end
                     end
-                    F3_AND:     alu_control = ALU_AND; //AND
-                    F3_OR:      alu_control = ALU_OR; //OR
-                    F3_XOR:     alu_control = ALU_XOR; //XOR/XORI
-                    F3_SLT:     alu_control = ALU_SLT; //SLTI
-                    F3_SLTU:    alu_control = ALU_SLTU; //SLTIU
-                    F3_SLL:     alu_control = ALU_SLL; //SLLI
-                    F3_SRL_SRA: alu_control = (func7[5]) ? ALU_SRA : ALU_SRL; //SRAI : SRLI
+                    FUNC3_AND:     alu_control = ALU_AND; //AND
+                    FUNC3_OR:      alu_control = ALU_OR; //OR
+                    FUNC3_XOR:     alu_control = ALU_XOR; //XOR/XORI
+                    FUNC3_SLT:     alu_control = ALU_SLT; //SLTI
+                    FUNC3_SLTU:    alu_control = ALU_SLTU; //SLTIU
+                    FUNC3_SLL:     alu_control = ALU_SLL; //SLLI
+                    FUNC3_SRL_SRA: alu_control = (func7[5]) ? ALU_SRA : ALU_SRL; //SRAI : SRLI
                     default:    alu_control = ALU_SLTU; //Everything else
                 endcase
             end
             //B type
             ALU_OP_BRANCHES: begin
                 case (func3)
-                    F3_BEQ, F3_BNE:   alu_control = ALU_SUB;  //BEQ/BNE   -> SUB (use zero flag)
-                    F3_BLT, F3_BGE:   alu_control = ALU_SLT;  //BLT/BGE   -> signed SLT (use last bit)
-                    F3_BLTU, F3_BGEU: alu_control = ALU_SLTU; //BLTU/BGEU -> unsigned SLT (use last bit)
+                    FUNC3_BEQ, FUNC3_BNE:   alu_control = ALU_SUB;  //BEQ/BNE   -> SUB (use zero flag)
+                    FUNC3_BLT, FUNC3_BGE:   alu_control = ALU_SLT;  //BLT/BGE   -> signed SLT (use last bit)
+                    FUNC3_BLTU, FUNC3_BGEU: alu_control = ALU_SLTU; //BLTU/BGEU -> unsigned SLT (use last bit)
                     default:          alu_control = ALU_SUB;  //fall back to SUB
                 endcase
             end
@@ -175,12 +189,12 @@ module control import cpu_core_pkg::*; (
     //Branch resolution: is the branch condition satisfied given the ALU flags?
     always_comb begin
         case (func3)
-            F3_BEQ:  assert_branch = alu_zero;   //beq
-            F3_BNE:  assert_branch = ~alu_zero;  //bne
-            F3_BLT:  assert_branch = alu_last;   //blt
-            F3_BGE:  assert_branch = ~alu_last;  //bge
-            F3_BLTU: assert_branch = alu_last;   //bltu
-            F3_BGEU: assert_branch = ~alu_last;  //bgeu
+            FUNC3_BEQ:  assert_branch = alu_zero;   //beq
+            FUNC3_BNE:  assert_branch = ~alu_zero;  //bne
+            FUNC3_BLT:  assert_branch = alu_last;   //blt
+            FUNC3_BGE:  assert_branch = ~alu_last;  //bge
+            FUNC3_BLTU: assert_branch = alu_last;   //bltu
+            FUNC3_BGEU: assert_branch = ~alu_last;  //bgeu
             default: assert_branch = 1'b0;
         endcase
     end

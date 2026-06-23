@@ -11,7 +11,8 @@ package cpu_core_pkg;
         OPCODE_U_TYPE_LUI    = 7'b0110111,
         OPCODE_U_TYPE_AUIPC  = 7'b0010111,
         OPCODE_J_TYPE        = 7'b1101111,
-        OPCODE_J_TYPE_JALR   = 7'b1100111
+        OPCODE_J_TYPE_JALR   = 7'b1100111,
+        OPCODE_CSR           = 7'b1110011
     } opcode_type;
 
     //ALU Op Codes for ALU decoder
@@ -23,46 +24,46 @@ package cpu_core_pkg;
 
     //MATH func3 --> R & I Type Instructions
     typedef enum logic [2:0] {
-        F3_ADD_SUB  = 3'b000,
-        F3_SLL      = 3'b001,
-        F3_SLT      = 3'b010,
-        F3_SLTU     = 3'b011,
-        F3_XOR      = 3'b100,
-        F3_SRL_SRA  = 3'b101,
-        F3_OR       = 3'b110,
-        F3_AND      = 3'b111
+        FUNC3_ADD_SUB  = 3'b000,
+        FUNC3_SLL      = 3'b001,
+        FUNC3_SLT      = 3'b010,
+        FUNC3_SLTU     = 3'b011,
+        FUNC3_XOR      = 3'b100,
+        FUNC3_SRL_SRA  = 3'b101,
+        FUNC3_OR       = 3'b110,
+        FUNC3_AND      = 3'b111
     } func3_type;
 
     //Func3 Branches
     typedef enum logic [2:0] {
-    F3_BEQ  = 3'b000,
-    F3_BNE  = 3'b001,
-    F3_BLT  = 3'b100,
-    F3_BGE  = 3'b101,
-    F3_BLTU  = 3'b110,
-    F3_BGEU  = 3'b111
+    FUNC3_BEQ  = 3'b000,
+    FUNC3_BNE  = 3'b001,
+    FUNC3_BLT  = 3'b100,
+    FUNC3_BGE  = 3'b101,
+    FUNC3_BLTU  = 3'b110,
+    FUNC3_BGEU  = 3'b111
     } func3_branch_type;
 
-    // LOAD & STORES F3
+    // LOAD & STORES FUNC3
     typedef enum logic [2:0] {
-        F3_WORD = 3'b010,
-        F3_BYTE = 3'b000,
-        F3_BYTE_U = 3'b100,
-        F3_HALFWORD = 3'b001,
-        F3_HALFWORD_U = 3'b101
+        FUNC3_WORD = 3'b010,
+        FUNC3_BYTE = 3'b000,
+        FUNC3_BYTE_U = 3'b100,
+        FUNC3_HALFWORD = 3'b001,
+        FUNC3_HALFWORD_U = 3'b101
     } func3_load_store_type;
 
-    // F7 for shifts
+    // FUNC7 for shifts
     typedef enum logic [6:0] {
-        F7_SLL_SRL  = 7'b0000000,
-        F7_SRA  = 7'b0100000
-    } f7_shift_type;
+        FUNC7_SLL_SRL  = 7'b0000000,
+        FUNC7_SRA  = 7'b0100000
+    } func7_shift_type;
 
-    // F7 for R-Types
+    // FUNC7 for R-Types
     typedef enum logic [6:0] {
-        F7_ADD  = 7'b0000000,
-        F7_SUB  = 7'b0100000
-    } f7_r_type;
+        FUNC7_ADD  = 7'b0000000,
+        FUNC7_SUB  = 7'b0100000
+    } func7_r_type;
 
     // ALU control arithmetic
     typedef enum logic [3:0] {
@@ -84,15 +85,17 @@ package cpu_core_pkg;
         IMM_S_TYPE = 3'b001,
         IMM_B_TYPE = 3'b010,
         IMM_J_TYPE = 3'b011,
-        IMM_U_TYPE = 3'b100
+        IMM_U_TYPE = 3'b100,
+        IMM_CSR_TYPE = 3'b101
     } imm_source_type;
 
     // Write-back source mux select (control --> cpu write-back mux)
-    typedef enum logic [1:0] {
-        WB_ALU_RESULT = 2'b00, //R-type / I-type ALU ops
-        WB_MEM_READ   = 2'b01, //loads
-        WB_PC_PLUS_4  = 2'b10, //jal / jalr link register
-        WB_SECOND_ADD = 2'b11  //auipc / lui
+    typedef enum logic [2:0] {
+        WB_ALU_RESULT = 3'b000, //R-type / I-type ALU ops
+        WB_MEM_READ   = 3'b001, //loads
+        WB_PC_PLUS_4  = 3'b010, //jal / jalr link register
+        WB_SECOND_ADD = 3'b011, //auipc / lui
+        WB_CSR_READ   = 3'b100  //CSR instructions (old CSR value -> rd)
     } write_back_source_type;
 
     // Next-PC mux select (control --> cpu next-PC mux)

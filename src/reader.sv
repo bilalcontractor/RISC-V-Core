@@ -28,7 +28,7 @@ module reader import cpu_core_pkg::*; (
 
         case (func3)
             //LB, LBU --> load one byte. Mask keeps only the bottom byte after the shift.
-            F3_BYTE, F3_BYTE_U: begin
+            FUNC3_BYTE, FUNC3_BYTE_U: begin
                 case (byte_enable)
                     4'b0001: raw_data = (mem_data) & 32'h000000FF; //no shift
                     4'b0010: raw_data = (mem_data >> 8)  & 32'h000000FF; //one byte
@@ -41,7 +41,7 @@ module reader import cpu_core_pkg::*; (
             end
 
             //LH, LHU --> load two bytes. Mask keeps the bottom half word after the shift.
-            F3_HALFWORD, F3_HALFWORD_U: begin
+            FUNC3_HALFWORD, FUNC3_HALFWORD_U: begin
                 case (byte_enable)
                     4'b0011: raw_data = (mem_data) & 32'h0000FFFF; //no shift
                     4'b1100: raw_data = (mem_data >> 16) & 32'h0000FFFF; //shift 16 bits
@@ -52,7 +52,7 @@ module reader import cpu_core_pkg::*; (
             end
 
             //LW --> full word, no shifting or extending needed
-            F3_WORD: write_back_data = mem_data;
+            FUNC3_WORD: write_back_data = mem_data;
 
             default: write_back_data = 32'b0;
         endcase

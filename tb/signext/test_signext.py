@@ -149,9 +149,25 @@ async def signext_u_type_test(dut):
         # add random junk to the raw_data to see if it is indeed discarded
         random_junk = random.randint(0,0b11111)
         raw_data |= random_junk
-        source = 0b100 
+        source = 0b100
         await Timer(1, units="ns")
         dut.raw_src.value = raw_data
         dut.imm_source.value = source
         await Timer(1, units="ns") # let it propagate ...
         assert int(dut.immediate.value) == imm_31_12 << 12
+
+@cocotb.test()
+async def signext_csr_type_test(dut):
+    # CSR zimm: 5-bit UNSIGNED immediate from raw_src[12:8], always zero-extended
+    for _ in range(100):
+        await Timer(100, units="ns")
+        zimm = random.randint(0, 0b11111) # 5-bit unsigned payload
+        # random junk everywhere else to confirm it gets discarded
+        junk = random.randint(0, (1 << 25) - 1) & ~(0b11111 << 8)
+        raw_data = (zimm << 8) | junk
+        source = 0b101
+        await Timer(1, units="ns")
+        dut.raw_src.value = raw_data
+        dut.imm_source.value = source
+        await Timer(1, units="ns") # let it propagate ...
+        assert int(dut.immediate.value) == zimm # zero-extended, never negative

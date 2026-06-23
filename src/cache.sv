@@ -27,7 +27,7 @@ module cache import cpu_core_pkg::*; #(
     output logic [6:0] next_set_ptr_out
 );
 
-    assign set_ptr_out = 7'(set_ptr);          //zero-extend the 3-bit counter to the debug port
+    assign set_ptr_out = 7'(set_ptr); //zero-extend the 3-bit counter to the debug port
     assign next_set_ptr_out = 7'(next_set_ptr);
 
     localparam WORDS_PER_LINE = CACHE_SIZE / NUM_SETS;
