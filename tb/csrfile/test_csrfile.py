@@ -141,3 +141,52 @@ async def test_cache_control_behavior(dut):
     await Timer(2, unit="ns")
     assert dut.flush_cache_flag.value == 0
     assert int(dut.flush_cache.value) == 0x00000000
+
+@cocotb.test()
+async def test_non_cachable_range(dut):
+    """non-cachable base/limit CSRs: plain storage, sticky, drive the output ports."""
+    # base lives at 0x7C1, limit at 0x7C2 (machine-mode custom RW region)
+
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    # After reset both the registers and their output ports read back 0
+    assert int(dut.non_cachable_base.value) == 0
+    assert int(dut.non_cachable_limit.value) == 0
+    assert int(dut.non_cachable_base_address.value) == 0
+    assert int(dut.non_cachable_limit_address.value) == 0
+
+    # Write the base CSR (CSRRW). Value persists and is exposed on the output port.
+    dut.write_enable.value = 1
+    dut.write_data.value = 0x90000000
+    dut.address.value = 0x7C1
+    dut.func3.value = 0b001  # CSRRW
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert int(dut.non_cachable_base.value) == 0x90000000
+    assert int(dut.non_cachable_base_address.value) == 0x90000000
+    assert int(dut.read_data.value) == 0x90000000
+
+    # Write the limit CSR (CSRRW). Independent of the base register.
+    dut.write_data.value = 0x9FFFFFFF
+    dut.address.value = 0x7C2
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert int(dut.non_cachable_limit.value) == 0x9FFFFFFF
+    assert int(dut.non_cachable_limit_address.value) == 0x9FFFFFFF
+    assert int(dut.read_data.value) == 0x9FFFFFFF
+    # base is unchanged by the limit write
+    assert int(dut.non_cachable_base.value) == 0x90000000
+
+    # Unlike flush_cache, these are sticky: they hold while write_enable is low
+    dut.write_enable.value = 0
+    dut.write_data.value = 0x12345678
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert int(dut.non_cachable_base.value) == 0x90000000
+    assert int(dut.non_cachable_limit.value) == 0x9FFFFFFF
+
+    # reset clears both CSRs back to 0
+    await reset(dut)
+    assert int(dut.non_cachable_base.value) == 0
+    assert int(dut.non_cachable_limit.value) == 0

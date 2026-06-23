@@ -107,7 +107,9 @@ package cpu_core_pkg;
 
     // CSR addresses (machine-mode, custom read-write region 0x7C0-0x7FF)
     typedef enum logic [11:0] {
-        CSR_FLUSH_CACHE = 12'h7C0
+        CSR_FLUSH_CACHE         = 12'h7C0,  // flush request into the cache
+        CSR_NON_CACHABLE_BASE   = 12'h7C1,  // base address of non-cachable range
+        CSR_NON_CACHABLE_LIMIT  = 12'h7C2   // limit address of non-cachable range
         // future CSRs ...
     } csr_address_type;
 

@@ -9,18 +9,26 @@ module csrfile import cpu_core_pkg::*; (
     output logic [31:0] read_data,  // current value of the addressed CSR (0 if unmapped)
 
     //CSR flags
-    output logic flush_cache_flag   // 1-cycle pulse telling the cache to flush
+    output logic flush_cache_flag,   // 1-cycle pulse telling the cache to flush
+    output logic [31:0] non_cachable_base_address, //base address for non cachable range
+    output logic [31:0] non_cachable_limit_address //limit address for non cachable range
 );
 
     logic [31:0] flush_cache, next_flush_cache;
+    logic [31:0] non_cachable_base, next_non_cachable_base;
+    logic [31:0] non_cachable_limit, next_non_cachable_limit;
     logic [31:0] write_back_to_csr; // value the addressed CSR would take
 
     always_ff @(posedge clk) begin
         if (~rst_n) begin
             flush_cache <= 32'd0; 
+            non_cachable_base <= 32'd0;
+            non_cachable_limit <= 32'd0;
         end
         else begin
             flush_cache <= next_flush_cache;
+            non_cachable_base <= next_non_cachable_base;
+            non_cachable_limit <= next_non_cachable_limit;
         end
     end
 
@@ -40,10 +48,25 @@ module csrfile import cpu_core_pkg::*; (
         end
     end
 
+    //logic for the cachable base and limit CSR
+    always_comb begin
+        next_non_cachable_base = non_cachable_base;
+        if (write_enable & (address == CSR_NON_CACHABLE_BASE)) begin
+            next_non_cachable_base = write_back_to_csr;
+        end
+
+        next_non_cachable_limit = non_cachable_limit;
+        if (write_enable & (address == CSR_NON_CACHABLE_LIMIT)) begin
+            next_non_cachable_limit = write_back_to_csr;
+        end
+    end
+
     // Read mux: drive read_data with the addressed CSR, or 0 if the address is unmapped.
     always_comb begin
         case (address)
             CSR_FLUSH_CACHE: read_data = flush_cache;
+            CSR_NON_CACHABLE_BASE: read_data = non_cachable_base;
+            CSR_NON_CACHABLE_LIMIT: read_data = non_cachable_limit;
 
             default: read_data = 32'd0;
         endcase
@@ -71,7 +94,10 @@ module csrfile import cpu_core_pkg::*; (
         endcase
     end
 
+    //Output CSR signals assignment
     // Bit 0 of the flush CSR is the flush request line into the cache.
     assign flush_cache_flag = flush_cache[0];
+    assign non_cachable_base_address = non_cachable_base;
+    assign non_cachable_limit_address = non_cachable_limit;
     
 endmodule
