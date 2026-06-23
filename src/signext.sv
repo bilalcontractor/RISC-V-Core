@@ -21,7 +21,7 @@ module signext import cpu_core_pkg::*; (
             //For U-types
             IMM_U_TYPE: immediate = {raw_src[24:5], 12'b0};
             //For CSR-types
-            IMM_CSR_TYPE: immediate = {{27{1'b0}}, raw_src[12:8]};
+            IMM_CSR_TYPE: immediate = {27'b0, raw_src[12:8]};
             default: immediate = 32'd0;
         endcase
     end

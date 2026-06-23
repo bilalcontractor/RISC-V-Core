@@ -17,6 +17,7 @@ VERILOG_SOURCES += $(PWD)/../../src/alu.sv
 VERILOG_SOURCES += $(PWD)/../../src/byte_enable_decoder.sv
 VERILOG_SOURCES += $(PWD)/../../src/reader.sv
 VERILOG_SOURCES += $(PWD)/../../src/load_store_unit.sv
+VERILOG_SOURCES += $(PWD)/../../src/csrfile.sv
 # Memory is no longer a CPU submodule: the caches + arbiter now front a single
 # external AXI memory (an AxiRam in the testbench), so we pull those in instead.
 VERILOG_SOURCES += $(PWD)/../../src/cache.sv

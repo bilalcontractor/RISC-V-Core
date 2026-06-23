@@ -78,6 +78,9 @@ module cpu import cpu_core_pkg::*; (
 
     logic mem_read_enable;
 
+    logic csr_write_back_source; //selects rs1 value vs zimm as the CSR write data
+    logic csr_write_enable;      //this instruction writes a CSR
+
     control control(
         .op(op),
         .func3(func3),
@@ -95,7 +98,10 @@ module cpu import cpu_core_pkg::*; (
         .write_back_source(write_back_source),
 
         .pc_source(pc_source),
-        .second_add_source(second_add_source)
+        .second_add_source(second_add_source),
+        //CSR control
+        .csr_write_back_source(csr_write_back_source),
+        .csr_write_enable(csr_write_enable)
     );
 
     //Register file
@@ -132,6 +138,15 @@ module cpu import cpu_core_pkg::*; (
             //Second-adder output -> auipc (rd <= pc + imm) and lui (rd <= imm)
             WB_SECOND_ADD: begin
                 write_back_data = pc_target;
+                wb_valid = 1'b1;
+            end
+            //CSR read value -> csr* instructions write the OLD csr value into rd
+            WB_CSR_READ: begin
+                write_back_data = csr_read_data;
+                wb_valid = 1'b1;
+            end
+            default: begin
+                write_back_data = alu_result;
                 wb_valid = 1'b1;
             end
         endcase
@@ -182,6 +197,35 @@ module cpu import cpu_core_pkg::*; (
         .alu_result(alu_result),
         .zero(alu_zero),
         .alu_last(alu_last)
+    );
+
+    //CSR file
+    //Holds the few implemented CSRs and emits their control flags (e.g. cache flush).
+    logic [11:0] csr_address;
+    assign csr_address = instruction[31:20]; //CSR address field of the instruction
+    logic [31:0] csr_read_data;  //old CSR value, routed to the write-back mux
+    logic [31:0] csr_write_data; //value written into the CSR (rs1 or zimm)
+    logic flush_cache_flag;      //one-cycle pulse ordering the data cache to flush
+
+    //Pick the CSR write source: register form uses rs1, immediate form uses the
+    //zero-extended zimm (signext already produces it as `immediate` for CSR ops).
+    always_comb begin
+        case (csr_write_back_source)
+            1'b0: csr_write_data = read_reg1;  //csrrw / csrrs / csrrc
+            1'b1: csr_write_data = immediate;  //csrrwi / csrrsi / csrrci
+        endcase
+    end
+
+    csrfile csr_file (
+        .clk(clk),
+        .rst_n(rst_n),
+        .func3(func3),
+        .write_data(csr_write_data),
+        //only commit the CSR write when the instruction retires (not while stalled)
+        .write_enable(csr_write_enable & ~global_stall),
+        .address(csr_address),
+        .read_data(csr_read_data),
+        .flush_cache_flag(flush_cache_flag)
     );
 
     //Load/Store Unit
@@ -252,7 +296,7 @@ module cpu import cpu_core_pkg::*; (
         .read_enable(mem_read_enable),
         .write_enable(mem_write),
         .byte_enable(mem_byte_enable),
-        .csr_flush_order(1'b0), //no CSR flush support yet
+        .csr_flush_order(flush_cache_flag), //CSR-ordered manual write-back
         .read_data(mem_read),
         .cache_stall(d_cache_stall),
 

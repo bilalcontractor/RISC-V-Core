@@ -25,6 +25,14 @@ CPU_PERIOD = 10        # ns
 SETTLE = 1             # ns, let combinational signals settle before sampling
 MEM_BYTES = 2 ** 14    # 16 KiB unified memory (code @ 0x0000, data @ 0x1000)
 
+# cache_state_type encoding (order must match cpu_core_pkg::cache_state_type)
+IDLE = 0
+SENDING_WRITE_REQUEST = 1
+SENDING_WRITE_DATA = 2
+WAITING_WRITE_RECIEVE = 3
+SENDING_READ_REQUEST = 4
+RECIEVING_READ_DATA = 5
+
 
 def binary_to_hex(bin_str):
     # Convert a binary string (a signal's .value) to an 8-char hex string.
@@ -540,6 +548,45 @@ async def test_loads(dut):
     assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "0000DEAD"
 
 
+async def test_csr(dut):
+    # CSR FLUSH_CACHE test:
+    #   addi x20 x0 0x1     | x20 <= 00000001
+    #   csrrw x21 0x7C0 x20 | x21 <= 00000000  (old CSR value)
+    print("\n\nTESTING CSR (FLUSH_CACHE)\n\n")
+
+    # Check test init's state: x21 still holds 0000DEAD from the loads test, addi up next.
+    assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "0000DEAD"
+    assert binary_to_hex(dut.cpu_system.instruction.value) == "00100A13"
+
+    await tick(dut)  # addi x20 x0 0x1
+    assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "00000001"
+    assert binary_to_hex(dut.cpu_system.instruction.value) == "7C0A1AF3"
+
+    # csrrw x21 0x7C0 x20 : commit it by hand (tick() would hide the flush stall).
+    await RisingEdge(dut.clk)  # csrrw x21 0x7C0 x20
+    await settle()
+    # value in the CSR was 0...
+    assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "00000000"
+
+    # The CSR write set flush_cache, so the pipeline now stalls while the dirty data
+    # cache performs its CSR-ordered write-back (IDLE -> SENDING_WRITE_REQUEST).
+    assert dut.cpu_system.global_stall.value == 0b1
+    assert binary_to_hex(dut.cpu_system.csr_file.flush_cache.value) == "00000001"
+
+    await RisingEdge(dut.clk)
+    await settle()
+    assert dut.cpu_system.data_cache.state.value == SENDING_WRITE_REQUEST
+
+    # Wait for the cache to finish writing the line back.
+    while dut.cpu_system.global_stall.value == 0b1:
+        await RisingEdge(dut.clk)
+        await settle()
+
+    # At the end of the stall, the flush CSR should be back to 0.
+    assert dut.cpu_system.global_stall.value == 0b0
+    assert binary_to_hex(dut.cpu_system.csr_file.flush_cache.value) == "00000000"
+
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Walk the full instruction datapath against an AXI-attached unified memory."""
@@ -594,3 +641,4 @@ async def cpu_insrt_test(dut):
     await test_sb(dut)
     await test_sh(dut)
     await test_loads(dut)
+    await test_csr(dut)
