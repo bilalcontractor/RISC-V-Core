@@ -113,13 +113,20 @@ package cpu_core_pkg;
         // future CSRs ...
     } csr_address_type;
 
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         IDLE,                  //cache is not doing anything . stall not asserted
+        // AXI (burst) states : move whole cache lines to/from main memory
         SENDING_WRITE_REQUEST, //cache missed and cache was dirty. currently sending write request to memory
         SENDING_WRITE_DATA,    //cache sending data burst to main memory
         WAITING_WRITE_RECIEVE, //cache waiting for write confirmation from main memory
         SENDING_READ_REQUEST,  //cache missed. now send read request to get new data from main memory into cache
-        RECIEVING_READ_DATA    //cache the data incoming from main memory
+        RECIEVING_READ_DATA,   //cache the data incoming from main memory
+        // AXI-Lite (single-beat) states : MMIO bypass for non-cachable addresses
+        LITE_SENDING_WRITE_REQUEST, //non-cachable write: sending write address
+        LITE_SENDING_WRITE_DATA,    //non-cachable write: sending the single data beat
+        LITE_WAITING_WRITE_RECIEVE, //non-cachable write: waiting for write confirmation
+        LITE_SENDING_READ_REQUEST,  //non-cachable read: sending read address
+        LITE_RECIEVING_READ_DATA    //non-cachable read: receiving the single data beat
     } cache_state_type;
 
 endpackage
