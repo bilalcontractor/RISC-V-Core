@@ -19,7 +19,7 @@
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
-from cocotbext.axi import AxiBus, AxiRam
+from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 CPU_PERIOD = 10        # ns
 SETTLE = 1             # ns, let combinational signals settle before sampling
@@ -587,6 +587,83 @@ async def test_csr(dut):
     assert binary_to_hex(dut.cpu_system.csr_file.flush_cache.value) == "00000000"
 
 
+async def test_mmio(dut, axi_lite_ram):
+    print("\n\nTESTING MMIO (UNCACHABLE RANGE)\n\n")
+
+    assert binary_to_hex(dut.cpu_system.instruction.value) == "00000A13"
+    await tick(dut)  # addi x20 x0 0x0
+
+    await tick(dut)  # lui x20 0x2
+    await tick(dut)  # addi x21 x20 0x200
+    
+    assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "00002000"
+    assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "00002200"
+
+    await tick(dut)  # csrrw x0 0x7C1 x20
+    await tick(dut)  # csrrw x0 0x7C2 x21
+
+    assert binary_to_hex(dut.cpu_system.csr_file.non_cachable_base.value) == "00002000"
+    assert binary_to_hex(dut.cpu_system.csr_file.non_cachable_limit.value) == "00002200"
+
+    await tick(dut)  # addi x20 x20 0x4
+    await tick(dut)  # lui x22 0xABCD1
+    await tick(dut)  # addi x22 x22 0x111
+    
+    assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "00002004"
+    assert binary_to_hex(dut.cpu_system.regfile.registers[22].value) == "ABCD1111"
+
+    # make sure data is initialy 0 where we'll test
+    axi_lite_ram.write(0x0000_2004, int(0x0000_0000).to_bytes(4, 'little'))
+    axi_lite_ram.write(0x0000_2008, int(0x0000_0000).to_bytes(4, 'little'))
+
+    # sw x22 0(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert axi_lite_ram.read(0x0000_2004, 4) == (0xABCD1111).to_bytes(4, "little")
+
+    # lw x22 4(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert binary_to_hex(dut.cpu_system.regfile.registers[22].value) == "00000000"
+
+    # lw x22 0(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert binary_to_hex(dut.cpu_system.regfile.registers[22].value) == "ABCD1111"
+
+    # PARTIAL MMIO TESTS
+    # addi x23 x0 0xEE
+    await settle()
+    await tick(dut)
+    assert binary_to_hex(dut.cpu_system.regfile.registers[23].value) == "000000EE"
+
+    # sb x23 0(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert axi_lite_ram.read(0x0000_2004, 4) == (0xABCD11EE).to_bytes(4, "little")
+
+    # addi x24 x0 0x123
+    await settle()
+    await tick(dut)
+    assert binary_to_hex(dut.cpu_system.regfile.registers[24].value) == "00000123"
+
+    # sh x24 2(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert axi_lite_ram.read(0x0000_2004, 4) == (0x012311EE).to_bytes(4, "little")
+
+    # lw x25 0(x20)
+    await settle()
+    assert dut.cpu_system.data_cache.is_non_cachable.value == 0b1
+    await tick(dut)
+    assert binary_to_hex(dut.cpu_system.regfile.registers[25].value) == "012311EE"
+
+
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Walk the full instruction datapath against an AXI-attached unified memory."""
@@ -596,6 +673,9 @@ async def cpu_insrt_test(dut):
     # hence reset_active_level=False.
     axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
                      size=MEM_BYTES, reset_active_level=False)
+    
+    axi_lite_ram = AxiLiteRam(AxiLiteBus.from_prefix(dut, "m_axi_lite"), dut.clk, dut.rst_n,
+                              size=MEM_BYTES, reset_active_level=False)
 
     await cpu_reset(dut)
 
@@ -642,3 +722,4 @@ async def cpu_insrt_test(dut):
     await test_sh(dut)
     await test_loads(dut)
     await test_csr(dut)
+    await test_mmio(dut, axi_lite_ram)

@@ -31,8 +31,8 @@ module data_cache import cpu_core_pkg::*; #(
     output logic [6:0] next_set_ptr_out
 );
 
-    assign set_ptr_out = set_ptr;
-    assign next_set_ptr_out = next_set_ptr;
+    assign set_ptr_out = {4'd0, set_ptr};
+    assign next_set_ptr_out = {4'd0, next_set_ptr};
 
     localparam WORDS_PER_LINE = CACHE_SIZE / NUM_SETS;
     localparam WORD_WIDTH = $clog2(WORDS_PER_LINE);
@@ -158,7 +158,7 @@ module data_cache import cpu_core_pkg::*; #(
         cache_state = state;
         next_set_ptr = set_ptr;
 
-        axi_lite.wstrb = 4'b1111; //AXI Lite default -> we write everything by default
+        axi_lite.wstrb = byte_enable; // Use byte_enable directly for partial memory operations
 
         //park the AXI-Lite bus idle by default so non-lite states don't infer
         //latches or drive undefined values onto the MMIO bus
@@ -199,11 +199,11 @@ module data_cache import cpu_core_pkg::*; #(
                     next_state = (is_cache_dirty[request_set]) ? SENDING_WRITE_REQUEST : SENDING_READ_REQUEST;
                 end
 
-                else if (read_enable & is_non_cachable) begin
+                else if (read_enable & is_non_cachable & ~axi_lite_complete) begin
                     next_state = LITE_SENDING_READ_REQUEST;
                 end
 
-                else if (actual_write_enable & is_non_cachable) begin
+                else if (actual_write_enable & is_non_cachable & ~axi_lite_complete) begin
                     next_state = LITE_SENDING_WRITE_REQUEST;
                 end
 
