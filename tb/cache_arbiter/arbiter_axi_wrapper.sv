@@ -21,8 +21,8 @@ module arbiter_axi_wrapper import cpu_core_pkg::*; (
     input  logic        rst_n,
 
     // ---- arbitration inputs : who wants the bus ----
-    input  logic [2:0]  i_cache_state,
-    input  logic [2:0]  d_cache_state,
+    input  logic [3:0]  i_cache_state,
+    input  logic [3:0]  d_cache_state,
 
     // m_axi : arbiter is MASTER (faces memory / AxiRam)
     // Write address

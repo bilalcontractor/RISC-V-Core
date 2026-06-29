@@ -1,11 +1,13 @@
-// Test wrapper for the cache.
+// Test wrapper for the data_cache (AXI full + AXI-Lite).
 //
 // cocotbext-axi's AxiRam needs FLAT top-level AXI signals (axi_awvalid, ...),
-// but the cache exposes a SystemVerilog `axi_interface` port. This wrapper:
+// but the cache exposes SystemVerilog `axi_interface` / `axi_lite_interface`
+// ports. This wrapper:
 //   * instantiates the cache as `cache_system` (the name the testbench reaches
 //     into for white-box checks),
 //   * renames the CPU ports to cpu_* so the testbench reads clearly,
-//   * splits the axi_interface into flat master signals for cocotbext-axi,
+//   * splits both the axi_interface and axi_lite_interface into flat master
+//     signals for cocotbext-axi,
 //   * surfaces the cache_state / set_ptr debug taps as top-level ports so the
 //     testbench does not have to reach into internals for them.
 module cache_axi_wrapper import cpu_core_pkg::*; #(
@@ -23,6 +25,8 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     input  logic        cpu_write_enable,
     input  logic [3:0]  cpu_byte_enable,
     input  logic        cpu_csr_flush_order,
+    input  logic [31:0] cpu_non_cachable_base,
+    input  logic [31:0] cpu_non_cachable_limit,
     output logic [31:0] cpu_read_data,
     output logic        cpu_cache_stall,
 
@@ -64,11 +68,40 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     input  logic [1:0]  axi_rresp,
     input  logic        axi_rlast,
     input  logic        axi_rvalid,
-    output logic        axi_rready
+    output logic        axi_rready,
+
+    // ---- Flattened AXI-Lite master signals (MMIO bypass) ----
+    // Write address
+    output logic [31:0] axi_lite_awaddr,
+    output logic        axi_lite_awvalid,
+    input  logic        axi_lite_awready,
+    // Write data
+    output logic [31:0] axi_lite_wdata,
+    output logic [3:0]  axi_lite_wstrb,
+    output logic        axi_lite_wvalid,
+    input  logic        axi_lite_wready,
+    // Write response
+    input  logic [1:0]  axi_lite_bresp,
+    input  logic        axi_lite_bvalid,
+    output logic        axi_lite_bready,
+    // Read address
+    output logic [31:0] axi_lite_araddr,
+    output logic        axi_lite_arvalid,
+    input  logic        axi_lite_arready,
+    // Read data
+    input  logic [31:0] axi_lite_rdata,
+    input  logic [1:0]  axi_lite_rresp,
+    input  logic        axi_lite_rvalid,
+    output logic        axi_lite_rready
 );
 
-    // The interface the cache actually talks to
-    axi_interface axi_if();
+    // The interfaces the cache actually talks to
+    axi_interface      axi_if();
+    axi_lite_interface axi_lite_if();
+
+    // ====================
+    // AXI FULL
+    // ====================
 
     // ---- master -> slave : driven by the cache, exported to the top ----
     assign axi_awid    = axi_if.awid;
@@ -103,29 +136,57 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     assign axi_if.rlast   = axi_rlast;
     assign axi_if.rvalid  = axi_rvalid;
 
+    // ====================
+    // AXI LITE
+    // ====================
+
+    // ---- master -> slave : driven by the cache, exported to the top ----
+    assign axi_lite_awaddr  = axi_lite_if.awaddr;
+    assign axi_lite_awvalid = axi_lite_if.awvalid;
+    assign axi_lite_wdata   = axi_lite_if.wdata;
+    assign axi_lite_wstrb   = axi_lite_if.wstrb;
+    assign axi_lite_wvalid  = axi_lite_if.wvalid;
+    assign axi_lite_bready  = axi_lite_if.bready;
+    assign axi_lite_araddr  = axi_lite_if.araddr;
+    assign axi_lite_arvalid = axi_lite_if.arvalid;
+    assign axi_lite_rready  = axi_lite_if.rready;
+
+    // ---- slave -> master : driven by the AxiRam, fed into the cache ----
+    assign axi_lite_if.awready = axi_lite_awready;
+    assign axi_lite_if.wready  = axi_lite_wready;
+    assign axi_lite_if.bresp   = axi_lite_bresp;
+    assign axi_lite_if.bvalid  = axi_lite_bvalid;
+    assign axi_lite_if.arready  = axi_lite_arready;
+    assign axi_lite_if.rdata   = axi_lite_rdata;
+    assign axi_lite_if.rresp   = axi_lite_rresp;
+    assign axi_lite_if.rvalid  = axi_lite_rvalid;
+
     // debug taps
     cache_state_type cache_state_w;
     assign cpu_cache_state = cache_state_w;
 
-    cache #(
+    data_cache #(
         .CACHE_SIZE (CACHE_SIZE),
         .NUM_SETS   (NUM_SETS)
     ) cache_system (
-        .clk             (clk),
-        .rst_n           (rst_n),
-        .aclk            (aclk),
-        .address         (cpu_address),
-        .write_data      (cpu_write_data),
-        .read_enable     (cpu_read_enable),
-        .write_enable    (cpu_write_enable),
-        .byte_enable     (cpu_byte_enable),
-        .csr_flush_order (cpu_csr_flush_order),
-        .read_data       (cpu_read_data),
-        .cache_stall     (cpu_cache_stall),
-        .axi             (axi_if.master),
-        .cache_state     (cache_state_w),
-        .set_ptr_out     (cpu_set_ptr),
-        .next_set_ptr_out()
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .aclk               (aclk),
+        .address            (cpu_address),
+        .write_data         (cpu_write_data),
+        .read_enable        (cpu_read_enable),
+        .write_enable       (cpu_write_enable),
+        .byte_enable        (cpu_byte_enable),
+        .csr_flush_order    (cpu_csr_flush_order),
+        .non_cachable_base  (cpu_non_cachable_base),
+        .non_cachable_limit (cpu_non_cachable_limit),
+        .read_data          (cpu_read_data),
+        .cache_stall        (cpu_cache_stall),
+        .axi                (axi_if.master),
+        .axi_lite           (axi_lite_if.master),
+        .cache_state        (cache_state_w),
+        .set_ptr_out        (cpu_set_ptr),
+        .next_set_ptr_out   ()
     );
 
 endmodule

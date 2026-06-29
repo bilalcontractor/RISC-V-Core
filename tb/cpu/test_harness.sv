@@ -52,11 +52,36 @@ module test_harness import cpu_core_pkg::*; (
     input  logic [1:0]  m_axi_rresp,
     input  logic        m_axi_rlast,
     input  logic        m_axi_rvalid,
-    output logic        m_axi_rready
+    output logic        m_axi_rready,
+
+    // ---- Flattened AXI-Lite master signals (MMIO bypass) ----
+    // Write address
+    output logic [31:0] m_axi_lite_awaddr,
+    output logic        m_axi_lite_awvalid,
+    input  logic        m_axi_lite_awready,
+    // Write data
+    output logic [31:0] m_axi_lite_wdata,
+    output logic [3:0]  m_axi_lite_wstrb,
+    output logic        m_axi_lite_wvalid,
+    input  logic        m_axi_lite_wready,
+    // Write response
+    input  logic [1:0]  m_axi_lite_bresp,
+    input  logic        m_axi_lite_bvalid,
+    output logic        m_axi_lite_bready,
+    // Read address
+    output logic [31:0] m_axi_lite_araddr,
+    output logic        m_axi_lite_arvalid,
+    input  logic        m_axi_lite_arready,
+    // Read data
+    input  logic [31:0] m_axi_lite_rdata,
+    input  logic [1:0]  m_axi_lite_rresp,
+    input  logic        m_axi_lite_rvalid,
+    output logic        m_axi_lite_rready
 );
 
-    // The interface the CPU actually masters.
-    axi_interface m_axi();
+    // The interfaces the CPU actually masters.
+    axi_interface      m_axi();
+    axi_lite_interface m_axi_lite();
 
     // ---- master -> slave : driven by the CPU, exported to the top ----
     assign m_axi_awid    = m_axi.awid;
@@ -91,10 +116,32 @@ module test_harness import cpu_core_pkg::*; (
     assign m_axi.rlast   = m_axi_rlast;
     assign m_axi.rvalid  = m_axi_rvalid;
 
+    // ---- AXI-Lite master -> slave : driven by the CPU, exported to the top ----
+    assign m_axi_lite_awaddr  = m_axi_lite.awaddr;
+    assign m_axi_lite_awvalid = m_axi_lite.awvalid;
+    assign m_axi_lite_wdata   = m_axi_lite.wdata;
+    assign m_axi_lite_wstrb   = m_axi_lite.wstrb;
+    assign m_axi_lite_wvalid  = m_axi_lite.wvalid;
+    assign m_axi_lite_bready  = m_axi_lite.bready;
+    assign m_axi_lite_araddr  = m_axi_lite.araddr;
+    assign m_axi_lite_arvalid = m_axi_lite.arvalid;
+    assign m_axi_lite_rready  = m_axi_lite.rready;
+
+    // ---- AXI-Lite slave -> master : driven by the MMIO model, fed into the CPU ----
+    assign m_axi_lite.awready = m_axi_lite_awready;
+    assign m_axi_lite.wready  = m_axi_lite_wready;
+    assign m_axi_lite.bresp   = m_axi_lite_bresp;
+    assign m_axi_lite.bvalid  = m_axi_lite_bvalid;
+    assign m_axi_lite.arready = m_axi_lite_arready;
+    assign m_axi_lite.rdata   = m_axi_lite_rdata;
+    assign m_axi_lite.rresp   = m_axi_lite_rresp;
+    assign m_axi_lite.rvalid  = m_axi_lite_rvalid;
+
     cpu cpu_system (
-        .clk   (clk),
-        .rst_n (rst_n),
-        .m_axi (m_axi.master)
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .m_axi     (m_axi.master),
+        .m_axi_lite (m_axi_lite.master)
     );
 
 endmodule

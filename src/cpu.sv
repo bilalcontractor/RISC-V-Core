@@ -5,7 +5,10 @@ module cpu import cpu_core_pkg::*; (
     input logic rst_n,
     // Single external memory bus. The instruction and data caches each master
     // their own AXI interface; the arbiter merges them onto this one port.
-    axi_interface.master m_axi
+    axi_interface.master m_axi,
+    // Non-cacheable (MMIO) bus. The data cache routes accesses that fall in the
+    // CSR-defined non-cacheable range out this AXI-Lite port, bypassing the cache.
+    axi_lite_interface.master m_axi_lite
 );
 
     //Program counter(pc)
@@ -206,6 +209,8 @@ module cpu import cpu_core_pkg::*; (
     logic [31:0] csr_read_data;  //old CSR value, routed to the write-back mux
     logic [31:0] csr_write_data; //value written into the CSR (rs1 or zimm)
     logic flush_cache_flag;      //one-cycle pulse ordering the data cache to flush
+    logic [31:0] non_cachable_base;  //base of the non-cacheable (MMIO) range, from a CSR
+    logic [31:0] non_cachable_limit; //limit of the non-cacheable (MMIO) range, from a CSR
 
     //Pick the CSR write source: register form uses rs1, immediate form uses the
     //zero-extended zimm (signext already produces it as `immediate` for CSR ops).
@@ -225,7 +230,9 @@ module cpu import cpu_core_pkg::*; (
         .write_enable(csr_write_enable & ~global_stall),
         .address(csr_address),
         .read_data(csr_read_data),
-        .flush_cache_flag(flush_cache_flag)
+        .flush_cache_flag(flush_cache_flag),
+        .non_cachable_base_address(non_cachable_base),
+        .non_cachable_limit_address(non_cachable_limit)
     );
 
     //Load/Store Unit
@@ -284,8 +291,10 @@ module cpu import cpu_core_pkg::*; (
         .next_set_ptr_out()
     );
 
-    //Data cache: serves loads and stores from the datapath / LSU.
-    cache data_cache (
+    //Data cache: serves loads and stores from the datapath / LSU. Cacheable
+    //traffic uses the full AXI bus (via the arbiter); accesses in the CSR-defined
+    //non-cacheable range bypass the cache out the AXI-Lite MMIO bus.
+    data_cache data_cache (
         .clk(clk),
         .rst_n(rst_n),
         .aclk(clk),
@@ -296,12 +305,15 @@ module cpu import cpu_core_pkg::*; (
         .read_enable(mem_read_enable),
         .write_enable(mem_write),
         .byte_enable(mem_byte_enable),
-        .csr_flush_order(flush_cache_flag), //CSR-ordered manual write-back
+        .csr_flush_order(flush_cache_flag),    //CSR-ordered manual write-back
+        .non_cachable_base(non_cachable_base), //MMIO range bounds (from CSRs)
+        .non_cachable_limit(non_cachable_limit),
         .read_data(mem_read),
         .cache_stall(d_cache_stall),
 
-        //AXI request connection (to the arbiter)
+        //AXI request connection (cacheable -> arbiter; MMIO -> lite bus)
         .axi(d_cache_axi.master),
+        .axi_lite(m_axi_lite),
         .cache_state(d_cache_state),
 
         //debug taps (unused at the core level)

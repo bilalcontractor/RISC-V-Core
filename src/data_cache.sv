@@ -63,6 +63,8 @@ module data_cache import cpu_core_pkg::*; #(
     assign is_non_cachable = (request_block_tag >= non_cachable_base[31:9]) 
         && (request_block_tag < non_cachable_limit[31:9]);
 
+    logic axi_lite_complete, next_axi_lite_complete;
+
     logic [31:0] axi_lite_read_result;
 
     logic [31:0] byte_enable_mask; //Only want to write specific bytes on a WORD based on byte_enable
@@ -81,7 +83,7 @@ module data_cache import cpu_core_pkg::*; #(
     //Stall logic: stall while operations are running, or on a fresh miss
     logic comb_stall, seq_stall;
     assign comb_stall = (next_state != IDLE) | (~hit & (read_enable | actual_write_enable));
-    assign cache_stall = comb_stall | seq_stall;
+    assign cache_stall = (comb_stall | seq_stall) && ~axi_lite_complete;
 
     //Cache Logic --> FSM
     cache_state_type state, next_state;
@@ -92,12 +94,14 @@ module data_cache import cpu_core_pkg::*; #(
             is_cache_dirty <= '0;
             seq_stall <= 1'b0;
             csr_flushing <= 1'b0;
+            axi_lite_complete <= 1'b0;
         end
         else begin
             is_cache_valid <= is_next_cache_valid;
             is_cache_dirty <= is_next_cache_dirty;
             seq_stall <= comb_stall;
             csr_flushing <= next_csr_flushing;
+            axi_lite_complete <= next_axi_lite_complete;
 
             if (hit & write_enable & state == IDLE) begin //Begin a write to the hitting set
                 cache_data[request_set][request_word] <=
@@ -147,6 +151,7 @@ module data_cache import cpu_core_pkg::*; #(
         is_next_cache_valid = is_cache_valid;
         is_next_cache_dirty = is_cache_dirty;
         next_csr_flushing = csr_flushing; //hold the flush flag by default
+        next_axi_lite_complete = axi_lite_complete;
         axi.wlast = 1'b0;
 
         axi.wdata = cache_data[request_set][set_ptr]; //word being written back from the evicted set
@@ -154,6 +159,17 @@ module data_cache import cpu_core_pkg::*; #(
         next_set_ptr = set_ptr;
 
         axi_lite.wstrb = 4'b1111; //AXI Lite default -> we write everything by default
+
+        //park the AXI-Lite bus idle by default so non-lite states don't infer
+        //latches or drive undefined values onto the MMIO bus
+        axi_lite.awaddr  = 32'b0;
+        axi_lite.araddr  = 32'b0;
+        axi_lite.wdata   = 32'b0;
+        axi_lite.awvalid = 1'b0;
+        axi_lite.wvalid  = 1'b0;
+        axi_lite.bready  = 1'b0;
+        axi_lite.arvalid = 1'b0;
+        axi_lite.rready  = 1'b0;
 
         //default request signals so no path leaves them unassigned (avoids latches)
         axi.awvalid = 1'b0;
@@ -170,9 +186,6 @@ module data_cache import cpu_core_pkg::*; #(
                 //can't do both at once
                 if (read_enable && write_enable) $display("ERROR, CAN'T READ AND WRITE AT THE SAME TIME!!!");
 
-                //we successfully read
-                else if (hit && read_enable) read_data = cache_data[request_set][request_word];
-
                 //CSR ordered a flush: force a write-back and skip the read-back afterwards
                 else if (csr_flush_order) begin
                     next_csr_flushing = 1'b1;
@@ -180,9 +193,28 @@ module data_cache import cpu_core_pkg::*; #(
                 end
 
                 //we missed and we tried to either read or write to cache
-                else if (~hit && (read_enable | actual_write_enable)) begin
+                else if (~hit && (read_enable ^ actual_write_enable) 
+                        & ~csr_flush_order & ~is_non_cachable) begin
                     //if this set's line is dirty, we have to write it back first
                     next_state = (is_cache_dirty[request_set]) ? SENDING_WRITE_REQUEST : SENDING_READ_REQUEST;
+                end
+
+                else if (read_enable & is_non_cachable) begin
+                    next_state = LITE_SENDING_READ_REQUEST;
+                end
+
+                else if (actual_write_enable & is_non_cachable) begin
+                    next_state = LITE_SENDING_WRITE_REQUEST;
+                end
+
+                if (axi_lite_complete) begin
+                    next_axi_lite_complete = 1'b0; //auto reset
+                end
+
+                if (hit && read_enable && ~is_non_cachable) begin
+                    read_data = cache_data[request_set][request_word];
+                end else if (is_non_cachable && read_enable) begin
+                    read_data = axi_lite_read_result;
                 end
 
                 // IDLE AXI SIGNALS : no request
@@ -298,10 +330,8 @@ module data_cache import cpu_core_pkg::*; #(
                 axi.arvalid = 1'b0;
                 axi.rready = 1'b1;
 
-                next_set_ptr = 7'd0;
-
                 // Cacheable burst on full AXI; hold all lite channels low so we don't
-                // advertise a phantom lite request.
+                // send phantom lite request.
                 axi_lite.awvalid = 1'b0;
                 axi_lite.wvalid = 1'b0;
                 axi_lite.bready = 1'b0;
@@ -313,7 +343,7 @@ module data_cache import cpu_core_pkg::*; #(
                 // Lite WRITE phase 1 (AW): present the raw address, wait for awready.
                 axi_lite.awaddr = address;
 
-                if (axi_lite.awready) next_state = LITE_RECIEVING_READ_DATA;
+                if (axi_lite.awready) next_state = LITE_SENDING_WRITE_DATA;
 
                 // Only awvalid high (address valid); W/B not started, no read.
                 axi_lite.awvalid = 1'b1;
@@ -345,6 +375,7 @@ module data_cache import cpu_core_pkg::*; #(
                 // Lite WRITE phase 3 (B): accept the response, then done.
                 if (axi_lite.bvalid) begin
                     next_state = IDLE;
+                    if (axi_lite.bresp == 2'b00) next_axi_lite_complete = 1'b1;
                 end
 
                 // Only bready high to take the response; AW/W done.
@@ -359,8 +390,8 @@ module data_cache import cpu_core_pkg::*; #(
             LITE_SENDING_READ_REQUEST: begin
                 // Lite READ phase 1 (AR): present the raw address.
                 axi_lite.araddr = address;
-                // NOTE: should gate on arready (the AR handshake), not araddr.
-                if (axi_lite.araddr) begin
+                // Gate on arready (the AR handshake), not the address value.
+                if (axi_lite.arready) begin
                     next_state = LITE_RECIEVING_READ_DATA;
                 end
 
@@ -376,6 +407,7 @@ module data_cache import cpu_core_pkg::*; #(
                 // Lite READ phase 2 (R): capture the returned word (see always_ff), then done.
                 if (axi_lite.rvalid) begin
                     next_state = IDLE;
+                    next_axi_lite_complete = 1'b1;
                 end
 
                 // Only rready high to accept the data; arvalid dropped, no write.

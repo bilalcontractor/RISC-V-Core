@@ -9,6 +9,7 @@ TOPLEVEL_LANG ?= verilog
 # $(PWD) is the current folder. We go up two levels to find the 'rtl' folder.
 # Change 'module1.sv' to whatever your actual SystemVerilog file is named.
 VERILOG_SOURCES += $(PWD)/../../packages/cpu_core_pkg.sv
+VERILOG_SOURCES += $(PWD)/../../packages/axi_interface.sv
 VERILOG_SOURCES += $(PWD)/../../packages/axi_lite_interface.sv
 VERILOG_SOURCES += $(PWD)/../../src/data_cache.sv
 VERILOG_SOURCES += $(PWD)/cache_axi_wrapper.sv
@@ -26,6 +27,9 @@ MODULE = test_data_cache
 # Verilator is fast but lazy; it won't create waveforms unless we force it.
 # This creates a .vcd file you can open in GTKWave.
 EXTRA_ARGS += --trace --trace-structs
+# The debug taps (set_ptr_out[6:0]) are intentionally wider than the 3-bit
+# set_ptr, so demote verilator's width warnings instead of erroring out.
+EXTRA_ARGS += -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC
 
 # 6. Include the Standard Cocotb Rules
 # This magic line finds where Cocotb is installed and loads all the hard work for you.
