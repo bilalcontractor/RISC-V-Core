@@ -1,7 +1,7 @@
 A single-cycle RISC-V (RV32I) CPU written from scratch in SystemVerilog following the HolyCore course, with per-module testbenches driven by [cocotb](https://www.cocotb.org/) and
 [Verilator](https://www.veripool.org/verilator/). The core now talks to memory
 through an **AXI4 bus** behind a pair of **direct-mapped write-back caches** (one
-for instructions, one for data) merged by an **arbiter**.
+for instructions, one for data) merged by an **arbiter**. It also features an **AXI-Lite MMIO bus** for routing non-cacheable accesses bypassing the data cache.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ squashed) until the line is refilled over AXI.
         +-----+     +-------------+     +---------+    +-----+    +-----+    +---------+
   pc -->| I$  |-->  | control +   |---> | regfile |--->| alu |--->| LSU |--->|   D$    |
         +-----+     | signext     |     +---------+    +-----+    +-----+    +---------+
-          ^         +-------------+          |            |          ^           |
+          ^         +-------------+          |            |          ^           |   |
           |                                  +------------+----------+--- write-back mux
           |                                                  (LSU = byte_enable_decoder + reader)
           +--------------- pc_next (pc+4 / branch-jump target / jalr), frozen while stalled ----+
@@ -22,24 +22,27 @@ squashed) until the line is refilled over AXI.
    I$ ─┐
        ├─► cache_arbiter ──AXI──► external memory   (I$ wins ties)
    D$ ─┘
+       └─► AXI-Lite MMIO bus (bypassing cache for non-cacheable ranges)
 ```
 
 The `LSU` (load/store unit) wraps the store-side byte-enable decoder and the
 load-side reader around the data cache. Both caches master their own AXI
 interface; the `cache_arbiter` muxes them onto the single external bus exposed
-at the top level.
+at the top level. The data cache additionally masters an AXI-Lite bus for MMIO.
 
 | Module                 | File                          | Role                                                        |
 |------------------------|-------------------------------|-------------------------------------------------------------|
-| `cpu`                  | `src/cpu.sv`                  | Top level: PC, wiring, muxes, the two caches + arbiter; exposes one external `axi_interface.master` port |
+| `cpu`                  | `src/cpu.sv`                  | Top level: PC, wiring, muxes, the two caches + arbiter; exposes external `axi_interface.master` and `axi_lite_interface.master` (MMIO) ports |
 | `control`              | `src/control.sv`              | Main decoder + ALU decoder + branch resolution              |
 | `alu`                  | `src/alu.sv`                  | ADD / SUB / AND / OR / XOR / SLT(U) / shifts, plus `zero` and `alu_last` flags |
 | `regfile`              | `src/regfile.sv`              | 32 × 32-bit register file (2 read ports, 1 write port)      |
+| `csrfile`              | `src/csrfile.sv`              | Holds CSRs including non-cacheable range bounds and cache flush flag |
 | `signext`              | `src/signext.sv`              | Immediate extraction/sign-extension for I/S/B/J/U formats   |
 | `byte_enable_decoder`  | `src/byte_enable_decoder.sv`  | Store path: picks the byte/half lane and shifts the register data into place, emitting the `byte_enable` mask |
 | `reader`               | `src/reader.sv`               | Load path: the inverse — shifts the selected lane down to bit 0, then sign- or zero-extends it |
 | `load_store_unit`      | `src/load_store_unit.sv`      | Thin wrapper bundling `byte_enable_decoder` (stores) + `reader` (loads) into one unit around the data cache |
-| `cache`                | `src/cache.sv`                | Direct-mapped, write-back, write-allocate cache with an AXI master FSM; used for both I$ and D$ |
+| `cache`                | `src/cache.sv`                | Direct-mapped, write-back, write-allocate cache with an AXI master FSM; used for I$ |
+| `data_cache`           | `src/data_cache.sv`           | Direct-mapped, write-back cache that routes non-cacheable accesses (MMIO) to a dedicated AXI-Lite bus; used for D$ |
 | `cache_arbiter`        | `src/cache_arbiter.sv`        | Combinational interconnect merging the I$ and D$ AXI buses onto one external port (instruction cache prioritised) |
 | `memory`               | `src/memory.sv`               | Simple word/byte-addressable memory; no longer in the core datapath — kept as a behavioural model for the standalone testbenches |
 
@@ -95,9 +98,11 @@ caches are `IDLE` the external bus is parked at safe zero defaults.
 **Integration in `cpu.sv`.** The top level now instantiates an instruction
 cache (read-only, addressed by the PC) and a data cache (driven by the
 LSU/ALU), each with its own internal `axi_interface`, joined by the arbiter to
-the one external `m_axi` port. A `global_stall = i_cache_stall | d_cache_stall`
-freezes the PC and gates the register write so the in-flight instruction is
-simply retried until both caches are ready.
+the one external `m_axi` port. The data cache also exposes an `m_axi_lite`
+port for routing MMIO traffic (defined by CSR non-cacheable ranges) outside
+the cache. A `global_stall = i_cache_stall | d_cache_stall` freezes the PC
+and gates the register write so the in-flight instruction is simply retried
+until both caches are ready.
 
 ## Instruction support
 
@@ -146,12 +151,12 @@ still on my plate because I haven't reached those stages yet — they are part o
 the course, not beyond it.
 
 **Done so far:** full RV32I single-cycle core, AXI4 interface, a direct-mapped
-write-back cache, split I$/D$ with an arbiter, and the LSU wrapper.
+write-back cache, split I$/D$ with an arbiter, the LSU wrapper, CSR file
+(Zicsr base), non-cacheable ranges (MMIO) via AXI-Lite, and full CPU-level AXI testbenches.
 
 **Remaining course material**
 
-- Zicsr: CSR instructions + a CSR register file (the cache already has a
-  `csr_flush_order` hook waiting for this)
+- Complete Zicsr: Add remaining CSR instructions/registers if any
 - FPGA-ready SoC wrapper (FPGA edition)
 
 **Beyond the course**
@@ -214,8 +219,7 @@ into flat signals and surfaces the debug taps:
   test drives the two `cache_state` inputs to exercise idle/active and
   read/write contention scenarios.
 
-> **Note:** the CPU-level testbench (`tb/cpu/test_cpu.py` + `tb/cpu/Makefile`)
-> still targets the pre-cache datapath — it pokes `dut.data_memory.mem` and the
-> Makefile compiles the old `memory.sv` rather than the caches. It needs
-> updating to drive the core over AXI (with an `AxiRam` backing store) before it
-> will build against the current `cpu.sv`.
+**CPU test wrapper.** The `tb/cpu/test_cpu.py` testbench fully integrates the CPU.
+It uses a `test_harness.sv` wrapper that breaks out the `m_axi` and `m_axi_lite`
+interfaces into flat signals, allowing `cocotbext-axi` to attach an `AxiRam` (for
+main memory) and an AXI-Lite responder (for MMIO) directly to the core.
