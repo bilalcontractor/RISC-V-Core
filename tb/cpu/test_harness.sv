@@ -144,4 +144,9 @@ module test_harness import cpu_core_pkg::*; (
         .m_axi_lite (m_axi_lite.master)
     );
 
+    // The UART now lives entirely in the testbench (uart_bridge in test_cpu.py):
+    // a Python coroutine snoops these AXI-Lite signals to transmit TX bytes and
+    // injects RX bytes into the AxiLiteRam, modelling a full bidirectional UART
+    // without any simulation-only RTL here.
+
 endmodule

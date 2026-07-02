@@ -44,3 +44,25 @@ EXTRA_ARGS += --trace --trace-structs
 # 6. Include the Standard Cocotb Rules
 # This magic line finds where Cocotb is installed and loads all the hard work for you.
 include $(shell cocotb-config --makefiles)/Makefile.sim
+
+# ---------------------------------------------------------------------------
+# 7. Assemble and free-run an arbitrary .s file, no Python/test changes needed.
+# Everything still runs through cocotb+Verilator, but `run` prints ONLY the
+# program's UART output - none of cocotb's INFO/WARNING logging or the results
+# table. It re-enters this Makefile with a single TESTCASE and seds out just
+# the text between the program's banners.
+#   make asm ASM=hello              -> assembles hello.s to hello_imemory.hex
+#   make run HEX=hello_imemory.hex  -> runs it, prints whatever hits the UART
+#                                       (no assertion - see run_program_test)
+# ---------------------------------------------------------------------------
+.PHONY: asm
+asm:
+	@test -n "$(ASM)" || (echo "usage: make asm ASM=<name>   (expects <name>.s)" >&2; exit 1)
+	./build_asm.sh $(ASM)
+
+.PHONY: run
+run:
+	@test -n "$(HEX)" || (echo "usage: make run HEX=<path/to/foo_imemory.hex>" >&2; exit 1)
+	@COCOTB_LOG_LEVEL=WARNING TESTCASE=run_program_test HEX=$(HEX) $(MAKE) -s 2>&1 \
+		| sed -n '/=== HOLY CORE UART OUTPUT ===/,/=== END UART OUTPUT ===/p' \
+		| grep -v '==='

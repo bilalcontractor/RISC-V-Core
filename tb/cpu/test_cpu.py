@@ -16,9 +16,12 @@
 # all of that: every test still reads as "one tick == one retired instruction".
 
 
+import logging
+import os
+
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge, ReadOnly, Timer
 from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 CPU_PERIOD = 10        # ns
@@ -103,6 +106,38 @@ async def cpu_reset(dut):
     await RisingEdge(dut.clk)
     dut.rst_n.value = 1
     await settle()
+
+
+async def uart_bridge(dut, tx_capture, *, tx_addr=0x0000_2010):
+    # Pure-Python UART TX snooper (no DPI-C, no synthesizable RTL).
+    #
+    # The AxiLiteRam stays the real AXI-Lite slave that ACKs every beat and backs
+    # the STATUS read (0x2014), which is zero-initialised => bit3 (TX busy) = 0 =
+    # "TX ready", so the program's polling loop proceeds. This coroutine only
+    # OBSERVES the write channel: whenever it sees a completed byte write to the TX
+    # register (0x2010) it appends the byte to tx_capture, reconstructing the
+    # character stream the CPU is "printing".
+    #
+    # Assumption: the CPU presents the write ADDRESS on/before the DATA beat (true
+    # for the holy_core AXI-Lite MMIO path), so at the data handshake we use the
+    # just-seen address, else the one latched at the earlier AW handshake.
+    latched_awaddr = 0
+
+    while True:
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+
+        aw_hs = dut.m_axi_lite_awvalid.value == 1 and dut.m_axi_lite_awready.value == 1
+        w_hs  = dut.m_axi_lite_wvalid.value  == 1 and dut.m_axi_lite_wready.value  == 1
+
+        if aw_hs:
+            latched_awaddr = int(dut.m_axi_lite_awaddr.value)
+
+        if w_hs:
+            eff_addr = int(dut.m_axi_lite_awaddr.value) if aw_hs else latched_awaddr
+            wstrb = int(dut.m_axi_lite_wstrb.value)
+            if eff_addr == tx_addr and (wstrb & 0x1):
+                tx_capture.append(int(dut.m_axi_lite_wdata.value) & 0xFF)
 
 
 async def test_data_base(dut):
@@ -723,3 +758,48 @@ async def cpu_insrt_test(dut):
     await test_loads(dut)
     await test_csr(dut)
     await test_mmio(dut, axi_lite_ram)
+
+
+@cocotb.test(skip="HEX" not in os.environ)
+async def run_program_test(dut):
+    """Free-run whatever hex image HEX points at and dump its UART output.
+    No assertion is made about the output, so new .s files (assembled with
+    build_asm.sh) need no changes here. The program is considered finished
+    when the PC repeats across two retired instructions (i.e. it hit a
+    `j <self>` park loop like hello.s's `done:`), or MAX_CYCLES retired
+    instructions elapse, whichever comes first.
+
+    Skipped unless HEX is set, so a plain `make` (full regression) doesn't
+    fail on it - it only runs via `make run HEX=...`."""
+    hexfile = os.environ.get("HEX")
+    if not hexfile:
+        raise RuntimeError(
+            "Set HEX=<path/to/foo_imemory.hex>, e.g. `make run HEX=hello_imemory.hex`"
+        )
+    max_cycles = int(os.environ.get("MAX_CYCLES", "20000"))
+
+    cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
+
+    axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
+                     size=MEM_BYTES, reset_active_level=False)
+    axi_lite_ram = AxiLiteRam(AxiLiteBus.from_prefix(dut, "m_axi_lite"), dut.clk, dut.rst_n,
+                              size=MEM_BYTES, reset_active_level=False)
+
+    await cpu_reset(dut)
+    await init_memory(axi_ram, hexfile, 0x0000)
+    await wait_fetch(dut)
+
+    logging.getLogger("cocotb.test_harness.m_axi_lite").setLevel(logging.WARNING)
+
+    tx_capture = bytearray()
+    cocotb.start_soon(uart_bridge(dut, tx_capture))
+
+    prev_pc = None
+    for _ in range(max_cycles):
+        await tick(dut)
+        pc = int(dut.cpu_system.pc.value)
+        if pc == prev_pc:
+            break
+        prev_pc = pc
+
+    print(bytes(tx_capture).decode("ascii", "replace"), end="")
