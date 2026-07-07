@@ -1,0 +1,13 @@
+# HolyCore platform spec. Same reset/nmi labels the arch-test env expects;
+# mtime/mtimecmp kept from the spike template (the I suite doesn't exercise
+# them, but riscof-config wants the fields present).
+mtime:
+  implemented: true
+  address: 0xbff8
+mtimecmp:
+  implemented: true
+  address: 0x4000
+nmi:
+  label: nmi_vector
+reset:
+  label: reset_vector

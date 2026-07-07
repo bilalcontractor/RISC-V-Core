@@ -10,6 +10,13 @@ results.xml
 # RISCOF compliance run output (signatures, disassembly, report.html, ELFs)
 riscof_work/
 
+# riscv-arch-test suite: a large (~1.6 GB) external git repo cloned in.
+# Not vendored here - clone it yourself (or register it as a submodule).
+riscof/riscv-arch-test/
+
+# Generated run logs (tb/cpu/dut.log, tb_messages.log, etc.)
+*.log
+
 # Machine-specific RISCOF config (absolute plugin paths).
 # Copy config.ini.example -> config.ini and set paths for your machine.
 config.ini

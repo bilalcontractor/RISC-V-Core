@@ -5,15 +5,15 @@
 
 [RISCOF]
 ReferencePlugin=sail_cSim
-ReferencePluginPath=<REPO_ROOT>/sail_cSim
+ReferencePluginPath=<REPO_ROOT>/riscof/sail_cSim
 DUTPlugin=spike
-DUTPluginPath=<REPO_ROOT>/spike
+DUTPluginPath=<REPO_ROOT>/riscof/spike
 
 [spike]
-pluginpath=<REPO_ROOT>/spike
-ispec=<REPO_ROOT>/spike/spike_isa.yaml
-pspec=<REPO_ROOT>/spike/spike_platform.yaml
+pluginpath=<REPO_ROOT>/riscof/spike
+ispec=<REPO_ROOT>/riscof/spike/spike_isa.yaml
+pspec=<REPO_ROOT>/riscof/spike/spike_platform.yaml
 target_run=1
 
 [sail_cSim]
-pluginpath=<REPO_ROOT>/sail_cSim
+pluginpath=<REPO_ROOT>/riscof/sail_cSim
