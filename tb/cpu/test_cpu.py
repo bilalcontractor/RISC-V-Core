@@ -14,130 +14,24 @@
 # write until the miss is served. Our cache is direct-mapped with 8-word lines,
 # so a fresh fetch stalls at every new line. The tick()/wait_fetch() helpers hide
 # all of that: every test still reads as "one tick == one retired instruction".
+#
+# This file only covers the instruction-level regression (cpu_insrt_test and its
+# per-instruction sub-tests). Whole-program flows (RISCOF signature dump, the
+# spike-style commit logger, and the UART free-run) live in test_program.py -
+# they share the harness helpers in sim_common.py but exercise a full compiled
+# binary rather than this file's small hand-assembled instruction stream.
 
-
-import logging
-import os
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, ReadOnly, Timer
+from cocotb.triggers import RisingEdge
 from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
-CPU_PERIOD = 10        # ns
-SETTLE = 1             # ns, let combinational signals settle before sampling
-MEM_BYTES = 2 ** 14    # 16 KiB unified memory (code @ 0x0000, data @ 0x1000)
-
-# cache_state_type encoding (order must match cpu_core_pkg::cache_state_type)
-IDLE = 0
-SENDING_WRITE_REQUEST = 1
-SENDING_WRITE_DATA = 2
-WAITING_WRITE_RECIEVE = 3
-SENDING_READ_REQUEST = 4
-RECIEVING_READ_DATA = 5
-
-
-def binary_to_hex(bin_str):
-    # Convert a binary string (a signal's .value) to an 8-char hex string.
-    hex_str = hex(int(str(bin_str), 2))[2:]
-    return hex_str.zfill(8).upper()
-
-
-def hex_to_bin(hex_str):
-    # Convert a hex string to a 32-bit binary string.
-    bin_str = bin(int(str(hex_str), 16))[2:]
-    return bin_str.zfill(32).upper()
-
-
-def read_cache(cache_data, index):
-    # Pull word `index` out of the data cache's packed cache_data vector.
-    # cache_data is packed [NUM_SETS-1:0][WORDS_PER_LINE-1:0][31:0], so the word
-    # at flat index N (= address[8:2]) lives at bits [N*32 +: 32]. We read the
-    # whole vector as an int and shift, which sidesteps any slice-direction issues.
-    full = cache_data.value.to_unsigned()
-    return (full >> (index * 32)) & 0xFFFFFFFF
-
-
-async def settle():
-    # Let combinational outputs (instruction, read_data, stall...) propagate.
-    await Timer(SETTLE, units="ns")
-
-
-async def wait_fetch(dut):
-    # Block until the instruction cache has the word at the current PC ready.
-    await settle()
-    while dut.cpu_system.i_cache_stall.value == 1:
-        await RisingEdge(dut.clk)
-        await settle()
-
-
-async def tick(dut):
-    # Retire exactly one instruction, then realign on the next valid fetch.
-    # global_stall freezes the PC / squashes the reg write, so the instruction
-    # only commits on an unstalled edge: wait the stall out, take the committing
-    # edge, then wait for the next fetch to be valid so `instruction` is safe to
-    # inspect by the caller.
-    await settle()
-    while dut.cpu_system.global_stall.value == 1:
-        await RisingEdge(dut.clk)
-        await settle()
-    await RisingEdge(dut.clk)   # commits the current instruction
-    await wait_fetch(dut)
-
-
-async def init_memory(axi_ram, hexfile, base_addr):
-    # Load a hex image (one 32-bit word per line, optional "// comment") into the
-    # AxiRam, little-endian, one word per 4 bytes 
-    offset = 0
-    with open(hexfile, "r") as file:
-        for line in file:
-            text = line.split("//")[0].strip()
-            if not text:
-                continue
-            word = int(text, 16).to_bytes(4, "little")
-            axi_ram.write(base_addr + offset, word)
-            offset += 4
-
-
-async def cpu_reset(dut):
-    # Drive active-low reset for a couple of cycles, then release.
-    dut.rst_n.value = 0
-    await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
-    dut.rst_n.value = 1
-    await settle()
-
-
-async def uart_bridge(dut, tx_capture, *, tx_addr=0x0000_2010):
-    # Pure-Python UART TX snooper (no DPI-C, no synthesizable RTL).
-    #
-    # The AxiLiteRam stays the real AXI-Lite slave that ACKs every beat and backs
-    # the STATUS read (0x2014), which is zero-initialised => bit3 (TX busy) = 0 =
-    # "TX ready", so the program's polling loop proceeds. This coroutine only
-    # OBSERVES the write channel: whenever it sees a completed byte write to the TX
-    # register (0x2010) it appends the byte to tx_capture, reconstructing the
-    # character stream the CPU is "printing".
-    #
-    # Assumption: the CPU presents the write ADDRESS on/before the DATA beat (true
-    # for the holy_core AXI-Lite MMIO path), so at the data handshake we use the
-    # just-seen address, else the one latched at the earlier AW handshake.
-    latched_awaddr = 0
-
-    while True:
-        await RisingEdge(dut.clk)
-        await ReadOnly()
-
-        aw_hs = dut.m_axi_lite_awvalid.value == 1 and dut.m_axi_lite_awready.value == 1
-        w_hs  = dut.m_axi_lite_wvalid.value  == 1 and dut.m_axi_lite_wready.value  == 1
-
-        if aw_hs:
-            latched_awaddr = int(dut.m_axi_lite_awaddr.value)
-
-        if w_hs:
-            eff_addr = int(dut.m_axi_lite_awaddr.value) if aw_hs else latched_awaddr
-            wstrb = int(dut.m_axi_lite_wstrb.value)
-            if eff_addr == tx_addr and (wstrb & 0x1):
-                tx_capture.append(int(dut.m_axi_lite_wdata.value) & 0xFF)
+from sim_common import (
+    CPU_PERIOD, AXI_PERIOD, MEM_BYTES, SENDING_WRITE_REQUEST,
+    binary_to_hex, read_cache,
+    settle, wait_fetch, tick, init_memory, cpu_reset,
+)
 
 
 async def test_data_base(dut):
@@ -630,7 +524,7 @@ async def test_mmio(dut, axi_lite_ram):
 
     await tick(dut)  # lui x20 0x2
     await tick(dut)  # addi x21 x20 0x200
-    
+
     assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "00002000"
     assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "00002200"
 
@@ -643,7 +537,7 @@ async def test_mmio(dut, axi_lite_ram):
     await tick(dut)  # addi x20 x20 0x4
     await tick(dut)  # lui x22 0xABCD1
     await tick(dut)  # addi x22 x22 0x111
-    
+
     assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "00002004"
     assert binary_to_hex(dut.cpu_system.regfile.registers[22].value) == "ABCD1111"
 
@@ -703,12 +597,13 @@ async def test_mmio(dut, axi_lite_ram):
 async def cpu_insrt_test(dut):
     """Walk the full instruction datapath against an AXI-attached unified memory."""
     cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, AXI_PERIOD, units="ns").start())
 
     # An AxiRam plays main memory on the CPU's flat m_axi bus. rst_n is active-low,
     # hence reset_active_level=False.
     axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
                      size=MEM_BYTES, reset_active_level=False)
-    
+
     axi_lite_ram = AxiLiteRam(AxiLiteBus.from_prefix(dut, "m_axi_lite"), dut.clk, dut.rst_n,
                               size=MEM_BYTES, reset_active_level=False)
 
@@ -758,48 +653,3 @@ async def cpu_insrt_test(dut):
     await test_loads(dut)
     await test_csr(dut)
     await test_mmio(dut, axi_lite_ram)
-
-
-@cocotb.test(skip="HEX" not in os.environ)
-async def run_program_test(dut):
-    """Free-run whatever hex image HEX points at and dump its UART output.
-    No assertion is made about the output, so new .s files (assembled with
-    build_asm.sh) need no changes here. The program is considered finished
-    when the PC repeats across two retired instructions (i.e. it hit a
-    `j <self>` park loop like hello.s's `done:`), or MAX_CYCLES retired
-    instructions elapse, whichever comes first.
-
-    Skipped unless HEX is set, so a plain `make` (full regression) doesn't
-    fail on it - it only runs via `make run HEX=...`."""
-    hexfile = os.environ.get("HEX")
-    if not hexfile:
-        raise RuntimeError(
-            "Set HEX=<path/to/foo_imemory.hex>, e.g. `make run HEX=hello_imemory.hex`"
-        )
-    max_cycles = int(os.environ.get("MAX_CYCLES", "20000"))
-
-    cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
-
-    axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
-                     size=MEM_BYTES, reset_active_level=False)
-    axi_lite_ram = AxiLiteRam(AxiLiteBus.from_prefix(dut, "m_axi_lite"), dut.clk, dut.rst_n,
-                              size=MEM_BYTES, reset_active_level=False)
-
-    await cpu_reset(dut)
-    await init_memory(axi_ram, hexfile, 0x0000)
-    await wait_fetch(dut)
-
-    logging.getLogger("cocotb.test_harness.m_axi_lite").setLevel(logging.WARNING)
-
-    tx_capture = bytearray()
-    cocotb.start_soon(uart_bridge(dut, tx_capture))
-
-    prev_pc = None
-    for _ in range(max_cycles):
-        await tick(dut)
-        pc = int(dut.cpu_system.pc.value)
-        if pc == prev_pc:
-            break
-        prev_pc = pc
-
-    print(bytes(tx_capture).decode("ascii", "replace"), end="")
