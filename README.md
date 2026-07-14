@@ -3,6 +3,12 @@ A single-cycle RISC-V (RV32I) CPU written from scratch in SystemVerilog followin
 through an **AXI4 bus** behind a pair of **direct-mapped write-back caches** (one
 for instructions, one for data) merged by an **arbiter**. It also features an **AXI-Lite MMIO bus** for routing non-cacheable accesses bypassing the data cache.
 
+The core runs **real compiled programs**: hand-written RISC-V assembly and full
+**C** (compiled with GCC + newlib, `printf` and all) execute end-to-end on the
+RTL and print to a simulated UART. It also passes the **RV32I
+[RISCOF](https://github.com/riscv-software-src/riscof) / riscv-arch-test
+compliance suite**, signature-diffed against the Sail reference model.
+
 ## Architecture
 
 The core is a classic single-cycle datapath: every instruction fetches,
@@ -114,11 +120,13 @@ until both caches are ready.
 | I (ALU) | `addi` `andi` `ori` `xori` `slti` `sltiu` `slli` `srli` `srai` | ✅ implemented + tested |
 | U    | `lui` `auipc`   | ✅ implemented + tested |
 | J    | `jal` `jalr`    | ✅ implemented + tested |
-| B    | `beq` `blt`     | ✅ implemented + tested |
-| B    | `bne` `bge` `bltu` `bgeu` | 🚧 fully decode/flag-wired, not yet tested |
+| B    | `beq` `bne` `blt` `bge` `bltu` `bgeu` | ✅ implemented + tested |
+| SYSTEM | `fence` (nop), Zicsr `csrrw`/`csrrs`/… | ✅ CSR ops implemented + tested |
 
-With those, the full **RV32I base ISA** is implemented; only the four untested
-branch variants are left to exercise.
+The full **RV32I base ISA** is implemented and passes the RV32I RISCOF /
+riscv-arch-test compliance suite (see [Compliance testing](#compliance-testing-riscof)
+below). RISCOF still flags the `M`-extension tests it runs by default, since
+`mul`/`div` are not implemented yet — those are on the [roadmap](#roadmap).
 
 **Sub-word loads/stores.** `sb`/`sh` and `lb`/`lh`/`lbu`/`lhu` reuse the normal
 ALU address path; the byte/half handling lives in two mirror modules now bundled
@@ -152,7 +160,10 @@ the course, not beyond it.
 
 **Done so far:** full RV32I single-cycle core, AXI4 interface, a direct-mapped
 write-back cache, split I$/D$ with an arbiter, the LSU wrapper, CSR file
-(Zicsr base), non-cacheable ranges (MMIO) via AXI-Lite, and full CPU-level AXI testbenches.
+(Zicsr base), non-cacheable ranges (MMIO) via AXI-Lite, full CPU-level AXI
+testbenches, a GCC/newlib toolchain flow that runs real assembly and C on the
+core through a simulated UART, and RV32I RISCOF / riscv-arch-test compliance
+against the Sail reference model.
 
 **Remaining course material**
 
@@ -175,10 +186,14 @@ a focused cocotb test under `tb/`. Sub-word memory ops additionally touch
 ## Repository layout
 
 ```
-src/        SystemVerilog source for each module
-tb/         cocotb testbenches, one directory per module (each with a Makefile)
-packages/   shared SystemVerilog packages (cpu_core_pkg, axi_interface)
-venv/        Python virtual environment for cocotb (gitignored)
+src/                SystemVerilog source for each module
+tb/                 cocotb testbenches, one directory per module (each with a Makefile)
+  cpu/              full-CPU TB: instruction regression + whole-program flows
+    programs/       assembly / C sources and their assembled hex images
+    runtime/        build scripts (build_asm.sh, build_c.sh), crt0.s, syscalls.c, linker scripts
+packages/           shared SystemVerilog packages (cpu_core_pkg, axi_interface, axi_lite_interface)
+riscof/             RISCOF compliance harness (core DUT plugin, sail reference, arch-test suite)
+venv/               Python virtual environment for cocotb (gitignored)
 ```
 
 ## Running the tests
@@ -222,4 +237,77 @@ into flat signals and surfaces the debug taps:
 **CPU test wrapper.** The `tb/cpu/test_cpu.py` testbench fully integrates the CPU.
 It uses a `test_harness.sv` wrapper that breaks out the `m_axi` and `m_axi_lite`
 interfaces into flat signals, allowing `cocotbext-axi` to attach an `AxiRam` (for
-main memory) and an AXI-Lite responder (for MMIO) directly to the core.
+main memory) and an AXI-Lite responder (for MMIO) directly to the core. The
+full-CPU tests are split across two modules that share `sim_common.py` helpers:
+`test_cpu.py` holds the hand-assembled instruction-level regression (runs on a
+plain `make`), and `test_program.py` holds the whole-program flows (RISCOF
+signature dump + free-running program runner, each skipped unless its env vars
+are set).
+
+## Running programs on the core
+
+Beyond the per-instruction tests, the core runs whole compiled programs and
+prints to a **simulated UART**. The UART is a Python coroutine (`uart_bridge` in
+`sim_common.py`) that snoops the AXI-Lite MMIO bus: a program opens a
+non-cacheable window via the CSRs, then stores characters to the UART TX
+register (`0x2010`), which the bridge captures and prints. All of this still runs
+through cocotb + Verilator on the RTL.
+
+**Assembly.** Put a `.s` file in `tb/cpu/programs/`, assemble it, and free-run it:
+
+```bash
+cd tb/cpu
+make asm ASM=hello                       # programs/hello.s  -> programs/hello_imemory.hex
+make run HEX=programs/hello_imemory.hex   # prints only the program's UART output
+```
+
+`build_asm.sh` (in `runtime/`) drives `as -> ld -> objcopy -> hexdump` into the
+flat little-endian hex image `init_memory()` loads. It uses the system
+`riscv64-unknown-elf-` binutils by default (override `PREFIX` if yours differs).
+
+**C.** Put a `.c` file in `tb/cpu/programs/` and build + run it in one step:
+
+```bash
+cd tb/cpu
+make c C=hello_c                     # compile programs/hello_c.c and run it
+make c C=hello_c MAX_CYCLES=200000   # raise the cycle budget for longer runs
+```
+
+`build_c.sh` links `crt0.s` + `syscalls.c` + your program against **newlib-nano**
+so a real `printf` works (its `_write` retargets to the UART). This needs an
+rv32i newlib toolchain — the scripts default to
+`/home/bilal/riscv32i/bin/riscv32-unknown-elf-`; override `PREFIX` to point at
+yours. `crt0.s` opens the MMIO window, zeroes `.bss`, and calls `main`; the
+`-Os` / newlib-nano choices keep the image inside the linker map (see
+`link_c.ld`).
+
+## Compliance testing (RISCOF)
+
+The `riscof/` directory wires the core into
+[RISCOF](https://github.com/riscv-software-src/riscof), the official RISC-V
+architectural test framework. It runs the
+[riscv-arch-test](https://github.com/riscv-non-isa/riscv-arch-test) suite on both
+the core and the **Sail** C reference model, then diffs the memory *signatures*
+the two produce — a mismatch means the core diverged from the spec somewhere.
+
+The core is plugged in as a RISCOF **DUT plugin** (`riscof/riscof_core/`) rather
+than a standalone binary: instead of invoking an executable, the plugin compiles
+each test `.S` to a hex image and runs the `tb/cpu` cocotb testbench
+(`riscof_signature_test` in `test_program.py`), which boots the binary at
+`0x8000_0000`, free-runs it to the `tohost` exit, and dumps the signature region.
+Each run also emits a spike-style per-commit log (`dut.log`) so a failing test
+can be root-caused with a plain diff against the reference model's log instead of
+digging through waveforms.
+
+The full **RV32I** suite passes. `M`-extension tests in the default suite still
+fail, since `mul`/`div` aren't implemented yet.
+
+```bash
+# copy the template and point it at your checkout (config.ini is gitignored)
+cp riscof/config.ini.example riscof/config.ini
+# then edit config.ini, replacing <REPO_ROOT> with your absolute repo path
+```
+
+Running RISCOF additionally needs the `riscof` Python package, the `sail-riscv`
+reference simulator, and an rv32 GCC toolchain (`riscv32-unknown-elf-*`) on
+`PATH`.
