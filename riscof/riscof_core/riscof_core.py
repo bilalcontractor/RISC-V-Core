@@ -58,7 +58,7 @@ class core(pluginTemplate):
 
         # One shell recipe that takes a single arch-test .S all the way to the
         # flat little-endian hex image init_memory() loads (same pipeline as
-        # tb/cpu/build_asm.sh: gcc -> objcopy -O binary -> hexdump).
+        # tb/cpu/runtime/build_asm.sh: gcc -> objcopy -O binary -> hexdump).
         #
         #   {0} : -march string (per-test, from testentry['isa'])
         #   {1} : input assembly (.S)

@@ -6,9 +6,17 @@
 [RISCOF]
 ReferencePlugin=sail_cSim
 ReferencePluginPath=<REPO_ROOT>/riscof/sail_cSim
-DUTPlugin=spike
-DUTPluginPath=<REPO_ROOT>/riscof/spike
+DUTPlugin=core
+DUTPluginPath=<REPO_ROOT>/riscof/riscof_core
 
+[core]
+pluginpath=<REPO_ROOT>/riscof/riscof_core
+ispec=<REPO_ROOT>/riscof/riscof_core/core_isa.yaml
+pspec=<REPO_ROOT>/riscof/riscof_core/core_platform.yaml
+target_run=1
+
+# Spike kept around as an alternative DUT for sanity-checking the flow
+# (set DUTPlugin=spike above to compare sail vs spike instead of your core).
 [spike]
 pluginpath=<REPO_ROOT>/riscof/spike
 ispec=<REPO_ROOT>/riscof/spike/spike_isa.yaml

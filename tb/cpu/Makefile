@@ -5,6 +5,11 @@
 SIM ?= verilator
 TOPLEVEL_LANG ?= verilog
 
+# Retired-instruction budget for `make run` (run_program_test stops early when
+# the PC parks). The 20000 default suits short .s files; C programs that call
+# printf need more, e.g. `make run HEX=programs/hello_c_imemory.hex MAX_CYCLES=80000`.
+MAX_CYCLES ?= 20000
+
 # Define the Paths to your Source Code
 VERILOG_SOURCES += $(wildcard $(PWD)/../../packages/*.sv)
 VERILOG_SOURCES += $(wildcard $(PWD)/../../src/*.sv)
@@ -45,18 +50,34 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 # Everything still runs through cocotb+Verilator, but `run` prints ONLY the
 # program's UART output - none of cocotb's INFO/WARNING logging or the results
 # table. It re-enters this Makefile with a single TESTCASE and seds out just
-# the text between the program's banners.
-#   make asm ASM=hello              -> assembles hello.s to hello_imemory.hex
-#   make run HEX=hello_imemory.hex  -> runs it, prints whatever hits the UART
-#                                       (no assertion - see run_program_test)
+# the text between the program's banners. Sources live in programs/, the build
+# scripts + runtime + linker scripts live in runtime/.
+#   make asm ASM=hello                       -> assembles programs/hello.s
+#   make run HEX=programs/hello_imemory.hex  -> runs it, prints whatever hits the
+#                                               UART (no assertion - see run_program_test)
 .PHONY: asm
 asm:
-	@test -n "$(ASM)" || (echo "usage: make asm ASM=<name>   (expects <name>.s)" >&2; exit 1)
-	./build_asm.sh $(ASM)
+	@test -n "$(ASM)" || (echo "usage: make asm ASM=<name>   (expects programs/<name>.s)" >&2; exit 1)
+	./runtime/build_asm.sh $(ASM)
 
 .PHONY: run
 run:
 	@test -n "$(HEX)" || (echo "usage: make run HEX=<path/to/foo_imemory.hex>" >&2; exit 1)
-	@COCOTB_LOG_LEVEL=WARNING TESTCASE=run_program_test HEX=$(HEX) $(MAKE) -s 2>&1 \
+	@COCOTB_LOG_LEVEL=WARNING TESTCASE=run_program_test HEX=$(HEX) MAX_CYCLES=$(MAX_CYCLES) $(MAKE) -s 2>&1 \
 		| sed -n '/=== HOLY CORE UART OUTPUT ===/,/=== END UART OUTPUT ===/p' \
 		| grep -v '==='
+
+# Compile a C program with the rv32i toolchain and free-run it in one step - the
+# C sibling of `asm`+`run`. runtime/build_c.sh links crt0.s + syscalls.c +
+# programs/<name>.c against newlib-nano, then the resulting hex goes straight to
+# the `run` pipeline so you see only the program's UART output.
+#   make c C=hello_c                    -> build programs/hello_c.c and run it
+#   make c C=hello_c MAX_CYCLES=200000  -> raise the cycle budget for longer runs
+# C defaults to a larger MAX_CYCLES than .s files because newlib printf is slow;
+# a command-line MAX_CYCLES=... still overrides this.
+.PHONY: c
+c: MAX_CYCLES = 80000
+c:
+	@test -n "$(C)" || (echo "usage: make c C=<name>   (expects programs/<name>.c)" >&2; exit 1)
+	@./runtime/build_c.sh $(C)
+	@$(MAKE) -s run HEX=programs/$(C)_imemory.hex MAX_CYCLES=$(MAX_CYCLES)
