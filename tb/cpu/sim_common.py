@@ -66,6 +66,16 @@ async def tick(dut):
     await wait_fetch(dut)
 
 
+async def count_cycles(dut, counter):
+    # Tally every clock edge for as long as this runs. Counting here rather than
+    # in the caller's loop is what makes stalls visible: tick() waits global_stall
+    # out, so a loop over tick() sees retired instructions only, and the gap
+    # between that and this counter IS the cache-miss cost.
+    while True:
+        await RisingEdge(dut.clk)
+        counter[0] += 1
+
+
 async def init_memory(axi_ram, hexfile, base_addr):
     # Load a hex image (one 32-bit word per line, optional "// comment") into the
     # AxiRam, little-endian, one word per 4 bytes

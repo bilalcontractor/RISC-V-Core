@@ -1,4 +1,4 @@
-# crt0.s - C runtime startup for HolyCore bare-metal programs (used by build_c.sh).
+# crt0.s - C runtime startup for bare-metal programs (used by build_c.sh).
 #
 # The CPU resets with PC=0, so _start must be the very first thing in the image;
 # link_c.ld places this file's `.text.init` section at 0x0. Responsibilities:

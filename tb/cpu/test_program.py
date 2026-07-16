@@ -17,6 +17,7 @@
 
 import logging
 import os
+import time
 
 import cocotb
 from cocotb.clock import Clock
@@ -25,7 +26,7 @@ from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 from sim_common import (
     CPU_PERIOD, AXI_PERIOD, MEM_BYTES,
-    cpu_reset, init_memory, wait_fetch, tick, uart_bridge,
+    cpu_reset, init_memory, wait_fetch, tick, uart_bridge, count_cycles,
 )
 
 FULL_ADDR_SPACE = 2 ** 32
@@ -167,16 +168,46 @@ async def run_program_test(dut):
     tx_capture = bytearray()
     cocotb.start_soon(uart_bridge(dut, tx_capture))
 
+    cycles = [0]
+    cocotb.start_soon(count_cycles(dut, cycles))
+    wall_start = time.perf_counter()
+
     prev_pc = None
+    retired = 0
     for _ in range(max_cycles):
         await tick(dut)
+        retired += 1
         pc = int(dut.cpu_system.pc.value)
         if pc == prev_pc:
             break
         prev_pc = pc
+
+    wall_seconds = time.perf_counter() - wall_start
+    parked = prev_pc is not None and pc == prev_pc
 
     # Banners bracket the raw UART text so the Makefile `run` target can sed
     # out exactly the program's output (see Makefile:57 run:).
     print("=== HOLY CORE UART OUTPUT ===")
     print(bytes(tx_capture).decode("ascii", "replace"), end="")
     print("\n=== END UART OUTPUT ===")
+
+    # Timing summary, in its own banner pair so `make run` can print it without
+    # mixing it into the program's UART text. The core is single-cycle (cpu.sv
+    # advances the PC every unstalled edge), so CPI is 1.0 in the ideal case and
+    # everything above that is cache-miss stall - see the 512-byte direct-mapped
+    # cache in cache.sv.
+    print("=== STATS ===")
+    if not parked:
+        print(f"WARNING: hit the {max_cycles} retired-instruction budget before the")
+        print("         PC parked - the program did NOT run to completion.")
+        print("         Raise it with MAX_CYCLES=... for a meaningful total.")
+    print(f"retired instructions : {retired}")
+    print(f"clock cycles         : {cycles[0]}")
+    print(f"stall cycles         : {cycles[0] - retired} "
+          f"({100.0 * (cycles[0] - retired) / cycles[0]:.1f}% of cycles)")
+    print(f"CPI                  : {cycles[0] / retired:.2f}  (1.00 = no stalls)")
+    print(f"simulated time       : {cycles[0] * CPU_PERIOD / 1000.0:.2f} us "
+          f"@ {1000.0 / CPU_PERIOD:.0f} MHz")
+    print(f"host wall-clock      : {wall_seconds:.2f} s "
+          f"({cycles[0] / wall_seconds / 1000.0:.1f} kHz sim rate)")
+    print("=== END STATS ===")

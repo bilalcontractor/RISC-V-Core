@@ -64,7 +64,8 @@ asm:
 run:
 	@test -n "$(HEX)" || (echo "usage: make run HEX=<path/to/foo_imemory.hex>" >&2; exit 1)
 	@COCOTB_LOG_LEVEL=WARNING TESTCASE=run_program_test HEX=$(HEX) MAX_CYCLES=$(MAX_CYCLES) $(MAKE) -s 2>&1 \
-		| sed -n '/=== HOLY CORE UART OUTPUT ===/,/=== END UART OUTPUT ===/p' \
+		| sed -n -e '/=== HOLY CORE UART OUTPUT ===/,/=== END UART OUTPUT ===/p' \
+		         -e '/=== STATS ===/,/=== END STATS ===/p' \
 		| grep -v '==='
 
 # Compile a C program with the rv32i toolchain and free-run it in one step - the
