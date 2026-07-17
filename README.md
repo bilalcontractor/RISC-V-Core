@@ -189,8 +189,9 @@ a focused cocotb test under `tb/`. Sub-word memory ops additionally touch
 src/                SystemVerilog source for each module
 tb/                 cocotb testbenches, one directory per module (each with a Makefile)
   cpu/              full-CPU TB: instruction regression + whole-program flows
-    programs/       assembly / C sources and their assembled hex images
-    runtime/        build scripts (build_asm.sh, build_c.sh), crt0.s, syscalls.c, linker scripts
+software/           bare-metal programs the core runs (build_asm.sh, build_c.sh)
+  src/              assembly / C sources and their assembled hex images
+  runtime/          crt0.s, syscalls.c, linker scripts
 packages/           shared SystemVerilog packages (cpu_core_pkg, axi_interface, axi_lite_interface)
 riscof/             RISCOF compliance harness (core DUT plugin, sail reference, arch-test suite)
 venv/               Python virtual environment for cocotb (gitignored)
@@ -253,23 +254,33 @@ non-cacheable window via the CSRs, then stores characters to the UART TX
 register (`0x2010`), which the bridge captures and prints. All of this still runs
 through cocotb + Verilator on the RTL.
 
-**Assembly.** Put a `.s` file in `tb/cpu/programs/`, assemble it, and free-run it:
+Programs live in their own `software/` tree at the repo root, separate from the
+testbenches: sources in `software/src/`, the bare-metal runtime (`crt0.s`,
+`syscalls.c`, linker scripts) in `software/runtime/`, and the build scripts at
+its top level. You still drive them from `tb/cpu`, since that's where the
+simulator runs.
+
+**Assembly.** Put a `.s` file in `software/src/`, assemble it, and free-run it:
 
 ```bash
 cd tb/cpu
-make asm ASM=hello                       # programs/hello.s  -> programs/hello_imemory.hex
-make run HEX=programs/hello_imemory.hex   # prints only the program's UART output
+make asm ASM=hello    # software/src/hello.s -> software/src/hello_imemory.hex
+make run HEX=hello    # prints only the program's UART output
 ```
 
-`build_asm.sh` (in `runtime/`) drives `as -> ld -> objcopy -> hexdump` into the
-flat little-endian hex image `init_memory()` loads. It uses the system
+`build_asm.sh` drives `as -> ld -> objcopy -> hexdump` into the flat
+little-endian hex image `init_memory()` loads. It uses the system
 `riscv64-unknown-elf-` binutils by default (override `PREFIX` if yours differs).
 
-**C.** Put a `.c` file in `tb/cpu/programs/` and build + run it in one step:
+`HEX` takes a bare program name, resolved to `software/src/<name>_imemory.hex`.
+It also accepts a path (anything containing a `/`), which keeps `make run` usable
+for hex images built outside `software/`.
+
+**C.** Put a `.c` file in `software/src/` and build + run it in one step:
 
 ```bash
 cd tb/cpu
-make c C=hello_c                     # compile programs/hello_c.c and run it
+make c C=hello_c                     # compile software/src/hello_c.c and run it
 make c C=hello_c MAX_CYCLES=200000   # raise the cycle budget for longer runs
 ```
 
