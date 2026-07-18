@@ -6,12 +6,25 @@ module csrfile import cpu_core_pkg::*; (
     input logic write_enable,
     input logic [11:0] address,     // CSR address from the instruction immediate
 
+    // Interrupts in
+    input logic timer_interrupt,
+    input logic software_interrupt,
+    input logic extternal_interrupt,
+
+    // PC of the instruction currently executing; latched into mepc on a trap
+    input logic [31:0] current_core_pc,
+
+    // Asserted when the core executes an MRET instruction (return from trap)
+    input logic mret,
+
     output logic [31:0] read_data,  // current value of the addressed CSR (0 if unmapped)
 
     // CSR flags
     output logic flush_cache_flag,   // 1-cycle pulse telling the cache to flush
     output logic [31:0] non_cachable_base_address, // base address for non cachable range
-    output logic [31:0] non_cachable_limit_address // limit address for non cachable range
+    output logic [31:0] non_cachable_limit_address, // limit address for non cachable range
+
+    output logic trap // Should we trap or not?
 );
 
     logic [31:0] flush_cache, next_flush_cache;
@@ -20,12 +33,12 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] write_back_to_csr; // value the addressed CSR would take
 
     // Trap handling CSRs
-    logic [31:0] mstatus, next_mstatus; // CSR_MSTATUS
-    logic [31:0] mie, next_mie;         // CSR_MIE
-    logic [31:0] mip, next_mip;         // CSR_MIP
-    logic [31:0] mtvec, next_mtvec;     // CSR_MTVEC
-    logic [31:0] mepc, next_mepc;       // CSR_MEPC
-    logic [31:0] mcause, next_mcause;   // CSR_MCAUSE
+    logic [31:0] mstatus, next_mstatus; // MACHINE STATUS: global interrupt enable + saved state on a trap
+    logic [31:0] mie, next_mie;         // MACHINE INTERRUPT ENABLE: per-source enable mask (timer/soft/ext)
+    logic [31:0] mip, next_mip;         // MACHINE INTERRUPT PENDING: per-source pending flags (timer/soft/ext)
+    logic [31:0] mtvec, next_mtvec;     // MACHINE TRAP VECTOR: base address the PC jumps to on a trap
+    logic [31:0] mepc, next_mepc;       // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
+    logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
 
     always_ff @(posedge clk) begin
         if (~rst_n) begin
@@ -60,7 +73,14 @@ module csrfile import cpu_core_pkg::*; (
     always_comb begin
         // mstatus
         next_mstatus = mstatus;
-        if (write_enable & (address == CSR_MSTATUS)) begin
+        if (trap) begin
+            next_mstatus[7] = next_mstatus[3]; // Save currect value
+            next_mstatus[3] = 0;
+        end
+        else if (mret) begin
+            next_mstatus[3] = next_mstatus[7]; // Restores old value when returning
+        end
+        else if (write_enable & (address == CSR_MSTATUS)) begin
             next_mstatus = write_back_to_csr;
         end
 
@@ -77,15 +97,45 @@ module csrfile import cpu_core_pkg::*; (
         end
 
         // mip
-        next_mip = mip;
+        /*
+           Each bit in mip is a seperate flag for a different interrupt source
+           bit 3 = MSIP --> machine software interrupt pending bit
+           bit 7 = MTIP --> machine timer interrupt pending bit
+           bit 11 = MEIP --> machine external interrupt pending bit
+           
+           We bit shift the special interrupt bits(software_interrupt, 
+           timer_interrupt, external_interrupt) into their respective positions, then do bitwise OR
+           to combine everything into one vector
+        */
+        next_mip = (32'(software_interrupt) << 3) | (32'(timer_interrupt) << 7) 
+            | (32'(external_interrupt) << 11);
 
         // mepc
         next_mepc = mepc;
-        if (write_enable & (address == CSR_MEPC)) begin
+        if (trap) begin
+            next_mepc = current_core_pc;
+        end
+        else if (write_enable & (address == CSR_MEPC)) begin
             next_mepc = write_back_to_csr;
         end
-
+        
+        // mcause
         next_mcause = mcause;
+        if (trap) begin
+            if (|(mie & mip)) begin
+                // If its an interrupt
+                next_mcause[31] = 1;
+                if (mip[11] && mie[11]) begin // External
+                    next_mcause[30:0] = 31'd11;
+                end
+                else if (mip[7] && mie[7]) begin // Timer
+                    next_mcause[30:0] = 31'd7;
+                end
+                else if (mip[3] && mie[3]) begin // Software
+                    next_mcause[30:0] = 31'd3;
+                end
+            end
+        end
     end
 
     // Next-state logic for the flush-cache CSR.
@@ -162,5 +212,8 @@ module csrfile import cpu_core_pkg::*; (
     assign flush_cache_flag = flush_cache[0];
     assign non_cachable_base_address = non_cachable_base;
     assign non_cachable_limit_address = non_cachable_limit;
+
+    // Output trap signal assignment
+    assign trap = (|(mie & mip )) && mstatus[3];
     
 endmodule
