@@ -1,11 +1,11 @@
 // cocotbext-axi's AxiRam needs FLAT top-level AXI signals (m_axi_awvalid, ...),
 // but the CPU exposes its single external memory bus as a SystemVerilog
 // `axi_interface` port (m_axi). This harness:
-//   * instantiates the CPU as `cpu_system` (the name the testbench reaches into
-//     for white-box checks: cpu_system.pc, cpu_system.instruction,
-//     cpu_system.regfile.registers[...], cpu_system.data_cache.cache_data, ...),
-//   * splits the m_axi interface into flat master signals so a single AxiRam can
-//     play the unified main memory that both caches share through the arbiter.
+//* instantiates the CPU as `cpu_system` (the name the testbench reaches into
+// for white-box checks: cpu_system.pc, cpu_system.instruction,
+// cpu_system.regfile.registers[...], cpu_system.data_cache.cache_data, ...),
+//* splits the m_axi interface into flat master signals so a single AxiRam can
+// play the unified main memory that both caches share through the arbiter.
 //
 // Direction reminder: the CPU is the AXI MASTER here. It drives the aw/w/ar
 // request channels and the *ready signals out; the AxiRam drives the
@@ -18,7 +18,7 @@ module test_harness import cpu_core_pkg::*; (
     input  logic        clk,
     input  logic        rst_n,
 
-    // ---- Flattened AXI master signals (for cocotbext-axi AxiRam) ----
+    //---- Flattened AXI master signals (for cocotbext-axi AxiRam) ----
     // Write address
     output logic [3:0]  m_axi_awid,
     output logic [31:0] m_axi_awaddr,
@@ -54,7 +54,7 @@ module test_harness import cpu_core_pkg::*; (
     input  logic        m_axi_rvalid,
     output logic        m_axi_rready,
 
-    // ---- Flattened AXI-Lite master signals (MMIO bypass) ----
+    //---- Flattened AXI-Lite master signals (MMIO bypass) ----
     // Write address
     output logic [31:0] m_axi_lite_awaddr,
     output logic        m_axi_lite_awvalid,
@@ -83,7 +83,7 @@ module test_harness import cpu_core_pkg::*; (
     axi_interface      m_axi();
     axi_lite_interface m_axi_lite();
 
-    // ---- master -> slave : driven by the CPU, exported to the top ----
+    //---- master -> slave : driven by the CPU, exported to the top ----
     assign m_axi_awid    = m_axi.awid;
     assign m_axi_awaddr  = m_axi.awaddr;
     assign m_axi_awlen   = m_axi.awlen;
@@ -103,7 +103,7 @@ module test_harness import cpu_core_pkg::*; (
     assign m_axi_arvalid = m_axi.arvalid;
     assign m_axi_rready  = m_axi.rready;
 
-    // ---- slave -> master : driven by the AxiRam, fed into the CPU ----
+    //---- slave -> master : driven by the AxiRam, fed into the CPU ----
     assign m_axi.awready = m_axi_awready;
     assign m_axi.wready  = m_axi_wready;
     assign m_axi.bid     = m_axi_bid;
@@ -116,7 +116,7 @@ module test_harness import cpu_core_pkg::*; (
     assign m_axi.rlast   = m_axi_rlast;
     assign m_axi.rvalid  = m_axi_rvalid;
 
-    // ---- AXI-Lite master -> slave : driven by the CPU, exported to the top ----
+    //---- AXI-Lite master -> slave : driven by the CPU, exported to the top ----
     assign m_axi_lite_awaddr  = m_axi_lite.awaddr;
     assign m_axi_lite_awvalid = m_axi_lite.awvalid;
     assign m_axi_lite_wdata   = m_axi_lite.wdata;
@@ -127,7 +127,7 @@ module test_harness import cpu_core_pkg::*; (
     assign m_axi_lite_arvalid = m_axi_lite.arvalid;
     assign m_axi_lite_rready  = m_axi_lite.rready;
 
-    // ---- AXI-Lite slave -> master : driven by the MMIO model, fed into the CPU ----
+    //---- AXI-Lite slave -> master : driven by the MMIO model, fed into the CPU ----
     assign m_axi_lite.awready = m_axi_lite_awready;
     assign m_axi_lite.wready  = m_axi_lite_wready;
     assign m_axi_lite.bresp   = m_axi_lite_bresp;

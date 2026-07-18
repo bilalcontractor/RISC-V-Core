@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 package cpu_core_pkg;
-    //Instruction Op Codes
+    // Instruction Op Codes
     typedef enum logic [6:0] {
         OPCODE_R_TYPE        = 7'b0110011,
         OPCODE_I_TYPE_ALU    = 7'b0010011,
@@ -15,14 +15,14 @@ package cpu_core_pkg;
         OPCODE_CSR           = 7'b1110011
     } opcode_type;
 
-    //ALU Op Codes for ALU decoder
+    // ALU Op Codes for ALU decoder
     typedef enum logic [1:0] {
         ALU_OP_LOAD_STORE  = 2'b00,
         ALU_OP_BRANCHES    = 2'b01,
         ALU_OP_MATH        = 2'b10
     } alu_op_type;
 
-    //MATH func3 --> R & I Type Instructions
+    // MATH func3 --> R & I Type Instructions
     typedef enum logic [2:0] {
         FUNC3_ADD_SUB  = 3'b000,
         FUNC3_SLL      = 3'b001,
@@ -34,7 +34,7 @@ package cpu_core_pkg;
         FUNC3_AND      = 3'b111
     } func3_type;
 
-    //Func3 Branches
+    // Func3 Branches
     typedef enum logic [2:0] {
     FUNC3_BEQ  = 3'b000,
     FUNC3_BNE  = 3'b001,
@@ -91,42 +91,50 @@ package cpu_core_pkg;
 
     // Write-back source mux select (control --> cpu write-back mux)
     typedef enum logic [2:0] {
-        WB_ALU_RESULT = 3'b000, //R-type / I-type ALU ops
-        WB_MEM_READ   = 3'b001, //loads
-        WB_PC_PLUS_4  = 3'b010, //jal / jalr link register
-        WB_SECOND_ADD = 3'b011, //auipc / lui
-        WB_CSR_READ   = 3'b100  //CSR instructions (old CSR value -> rd)
+        WB_ALU_RESULT = 3'b000, // R-type / I-type ALU ops
+        WB_MEM_READ   = 3'b001, // loads
+        WB_PC_PLUS_4  = 3'b010, // jal / jalr link register
+        WB_SECOND_ADD = 3'b011, // auipc / lui
+        WB_CSR_READ   = 3'b100  // CSR instructions (old CSR value -> rd)
     } write_back_source_type;
 
     // Next-PC mux select (control --> cpu next-PC mux)
     typedef enum logic [1:0] {
-        PC_PLUS_4     = 2'b00, //sequential
-        PC_TARGET     = 2'b01, //branch / jal
-        PC_ALU_RESULT = 2'b10  //jalr
+        PC_PLUS_4     = 2'b00, // sequential
+        PC_TARGET     = 2'b01, // branch / jal
+        PC_ALU_RESULT = 2'b10  // jalr
     } pc_source_type;
 
     // CSR addresses (machine-mode, custom read-write region 0x7C0-0x7FF)
     typedef enum logic [11:0] {
         CSR_FLUSH_CACHE         = 12'h7C0,  // flush request into the cache
         CSR_NON_CACHABLE_BASE   = 12'h7C1,  // base address of non-cachable range
-        CSR_NON_CACHABLE_LIMIT  = 12'h7C2   // limit address of non-cachable range
+        CSR_NON_CACHABLE_LIMIT  = 12'h7C2,  // limit address of non-cachable range
+
+        // Standard machine-mode trap-handling CSRs
+        CSR_MSTATUS             = 12'h300,  // machine status
+        CSR_MIE                 = 12'h304,  // machine interrupt-enable
+        CSR_MTVEC               = 12'h305,  // machine trap-vector base address
+        CSR_MEPC                = 12'h341,  // machine exception program counter
+        CSR_MCAUSE              = 12'h342,  // machine trap cause
+        CSR_MIP                 = 12'h344   // machine interrupt-pending
         // future CSRs ...
     } csr_address_type;
 
     typedef enum logic [3:0] {
-        IDLE,                  //cache is not doing anything . stall not asserted
+        IDLE,                  // cache is not doing anything . stall not asserted
         // AXI (burst) states : move whole cache lines to/from main memory
-        SENDING_WRITE_REQUEST, //cache missed and cache was dirty. currently sending write request to memory
-        SENDING_WRITE_DATA,    //cache sending data burst to main memory
-        WAITING_WRITE_RECIEVE, //cache waiting for write confirmation from main memory
-        SENDING_READ_REQUEST,  //cache missed. now send read request to get new data from main memory into cache
-        RECIEVING_READ_DATA,   //cache the data incoming from main memory
+        SENDING_WRITE_REQUEST, // cache missed and cache was dirty. currently sending write request to memory
+        SENDING_WRITE_DATA,    // cache sending data burst to main memory
+        WAITING_WRITE_RECIEVE, // cache waiting for write confirmation from main memory
+        SENDING_READ_REQUEST,  // cache missed. now send read request to get new data from main memory into cache
+        RECIEVING_READ_DATA,   // cache the data incoming from main memory
         // AXI-Lite (single-beat) states : MMIO bypass for non-cachable addresses
-        LITE_SENDING_WRITE_REQUEST, //non-cachable write: sending write address
-        LITE_SENDING_WRITE_DATA,    //non-cachable write: sending the single data beat
-        LITE_WAITING_WRITE_RECIEVE, //non-cachable write: waiting for write confirmation
-        LITE_SENDING_READ_REQUEST,  //non-cachable read: sending read address
-        LITE_RECIEVING_READ_DATA    //non-cachable read: receiving the single data beat
+        LITE_SENDING_WRITE_REQUEST, // non-cachable write: sending write address
+        LITE_SENDING_WRITE_DATA,    // non-cachable write: sending the single data beat
+        LITE_WAITING_WRITE_RECIEVE, // non-cachable write: waiting for write confirmation
+        LITE_SENDING_READ_REQUEST,  // non-cachable read: sending read address
+        LITE_RECIEVING_READ_DATA    // non-cachable read: receiving the single data beat
     } cache_state_type;
 
 endpackage

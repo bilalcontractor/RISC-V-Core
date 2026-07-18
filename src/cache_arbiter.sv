@@ -80,10 +80,10 @@ always_comb begin
     // the transaction finishes (no mid-burst switching).
     //
     // Inside each branch there are two directions of assignment:
-    //   m_axi.X = s_axi_*.X  -> forward the cache's REQUEST out to memory
-    //   s_axi_*.X = m_axi.X  -> forward memory's REPLY back to the cache
+    // m_axi.X = s_axi_*.X  -> forward the cache's REQUEST out to memory
+    // s_axi_*.X = m_axi.X  -> forward memory's REPLY back to the cache
     if (i_cache_state != IDLE) begin
-        // --- Instruction cache OWNS the bus ---
+        //--- Instruction cache OWNS the bus ---
         // Write Address Channel (cache -> memory)
         m_axi.awid     = s_axi_instruction.awid;
         m_axi.awaddr   = s_axi_instruction.awaddr;
@@ -124,7 +124,7 @@ always_comb begin
         m_axi.rready       = s_axi_instruction.rready;
 
     end else if (d_cache_state != IDLE & i_cache_state == IDLE) begin
-        // --- Data cache OWNS the bus (only when I$ is idle) ---
+        //--- Data cache OWNS the bus (only when I$ is idle) ---
         // Same wiring as above, just sourced from / fed to the data cache.
         // Write Address Channel (cache -> memory)
         m_axi.awid     = s_axi_data.awid;

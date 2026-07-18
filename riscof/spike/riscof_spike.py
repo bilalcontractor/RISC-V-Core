@@ -18,7 +18,7 @@ logger = logging.getLogger()
 class spike(pluginTemplate):
     __model__ = "spike"
 
-    #TODO: please update the below to indicate family, version, etc of your DUT.
+    # TODO: please update the below to indicate family, version, etc of your DUT.
     __version__ = "XXX"
 
     def __init__(self, *args, **kwargs):
@@ -51,9 +51,9 @@ class spike(pluginTemplate):
         self.isa_spec = os.path.abspath(config['ispec'])
         self.platform_spec = os.path.abspath(config['pspec'])
 
-        #We capture if the user would like the run the tests on the target or
-        #not. If you are interested in just compiling the tests and not running
-        #them on the target, then following variable should be set to False
+        # We capture if the user would like the run the tests on the target or
+        # not. If you are interested in just compiling the tests and not running
+        # them on the target, then following variable should be set to False
         if 'target_run' in config and config['target_run']=='0':
             self.target_run = False
         else:
@@ -103,7 +103,7 @@ class spike(pluginTemplate):
       if "C" in ispec["ISA"]:
           self.isa += 'c'
 
-      #TODO: The following assumes you are using the riscv-gcc toolchain. If
+      # TODO: The following assumes you are using the riscv-gcc toolchain. If
       #      not please change appropriately
       self.compile_cmd = self.compile_cmd+' -mabi='+('lp64 ' if 64 in ispec['supported_xlen'] else 'ilp32 ')
 
@@ -168,7 +168,7 @@ class spike(pluginTemplate):
 
       # if you would like to exit the framework once the makefile generation is complete uncomment the
       # following line. Note this will prevent any signature checking or report generation.
-      #raise SystemExit
+      # raise SystemExit
 
       # once the make-targets are done and the makefile has been created, run all the targets in
       # parallel using the make command set above.
@@ -179,8 +179,8 @@ class spike(pluginTemplate):
       if not self.target_run:
           raise SystemExit(0)
 
-#The following is an alternate template that can be used instead of the above.
-#The following template only uses shell commands to compile and run the tests.
+# The following is an alternate template that can be used instead of the above.
+# The following template only uses shell commands to compile and run the tests.
 
 #    def runTests(self, testList):
 #
@@ -241,8 +241,8 @@ class spike(pluginTemplate):
 #          utils.shellCommand(execute).run(cwd=test_dir)
 #
 #          # post-processing steps can be added here in the template below
-#          #postprocess = 'mv {0} temp.sig'.format(sig_file)'
-#          #utils.shellCommand(postprocess).run(cwd=test_dir)
+#          # postprocess = 'mv {0} temp.sig'.format(sig_file)'
+#          # utils.shellCommand(postprocess).run(cwd=test_dir)
 #
 #      # if target runs are not required then we simply exit as this point after running all
 #      # the makefile targets.

@@ -1,19 +1,19 @@
 module regfile (
     input logic clk,
     input logic rst_n,
-    //Reads
+    // Reads
     input logic [4:0] address1,
     input logic [4:0] address2,
     output logic [31:0] read_data1,
     output logic [31:0] read_data2,
 
-    //writes
+    // writes
     input logic write_enable,
     input logic [31:0] write_data,
     input logic [4:0] address3
 );
 
-    //32 bit register. Each addressed with 5 bits
+    // 32 bit register. Each addressed with 5 bits
     logic [31:0] registers [0:31];
 
     always_ff @(posedge clk) begin

@@ -6,7 +6,7 @@ import random
 @cocotb.test()
 async def signext_i_type_test(dut):
     # TEST POSITIVE IMM = 123 WITH SOURCE = 0
-    imm = 0b000001111011 #123
+    imm = 0b000001111011 # 123
     imm <<= 13 # leave "room" for random junk
     source = 0b00
     # 25 bits sent to sign extend contains data before that will be ignored (rd, f3,..)

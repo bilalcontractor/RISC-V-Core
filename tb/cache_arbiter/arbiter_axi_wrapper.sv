@@ -1,18 +1,18 @@
 // cocotbext-axi needs FLAT top-level AXI signals (m_axi_awvalid, ...), but the
 // arbiter exposes three SystemVerilog `axi_interface` ports. This wrapper:
-//   * instantiates the arbiter as `arbiter` (the name the testbench reaches
-//     into for any white-box checks),
-//   * splits each axi_interface into flat signals so cocotbext-axi can attach
-//       - m_axi      -> an AxiRam   (memory the arbiter masters)
-//       - s_axi_instr/s_axi_data -> an AxiMaster each (the caches driving in)
-//   * surfaces the two cache_state inputs as plain 3-bit ports the testbench
-//     drives to pick who owns the bus.
+//* instantiates the arbiter as `arbiter` (the name the testbench reaches
+// into for any white-box checks),
+//* splits each axi_interface into flat signals so cocotbext-axi can attach
+//- m_axi      -> an AxiRam   (memory the arbiter masters)
+//- s_axi_instr/s_axi_data -> an AxiMaster each (the caches driving in)
+//* surfaces the two cache_state inputs as plain 3-bit ports the testbench
+// drives to pick who owns the bus.
 //
 // Direction reminder:
-//   m_axi  : arbiter is MASTER  -> arbiter drives aw/w/ar + *ready out, AxiRam
-//            drives the responses in.
-//   s_axi_*: arbiter is SLAVE   -> the AxiMaster drives aw/w/ar in, arbiter
-//            drives awready/rdata/... back out.
+// m_axi  : arbiter is MASTER  -> arbiter drives aw/w/ar + *ready out, AxiRam
+// drives the responses in.
+// s_axi_*: arbiter is SLAVE   -> the AxiMaster drives aw/w/ar in, arbiter
+// drives awready/rdata/... back out.
 
 module arbiter_axi_wrapper import cpu_core_pkg::*; (
     // clk / rst_n are here only so cocotbext-axi's bus models have a clock and
@@ -20,7 +20,7 @@ module arbiter_axi_wrapper import cpu_core_pkg::*; (
     input  logic        clk,
     input  logic        rst_n,
 
-    // ---- arbitration inputs : who wants the bus ----
+    //---- arbitration inputs : who wants the bus ----
     input  logic [3:0]  i_cache_state,
     input  logic [3:0]  d_cache_state,
 

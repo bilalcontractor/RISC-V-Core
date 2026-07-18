@@ -12,34 +12,34 @@ module byte_enable_decoder import cpu_core_pkg::*; (
 
     always_comb begin
         case (func3)
-            //SB. only writes the last byte of register(reg_read)
-            //32'h0000000FF acts as bit mask. Same as 0000...0000 1111 1111.
-            //Forces only last byte to be shifted in
-            FUNC3_BYTE, FUNC3_BYTE_U: begin //SB, LB, LBU
+            // SB. only writes the last byte of register(reg_read)
+            // 32'h0000000FF acts as bit mask. Same as 0000...0000 1111 1111.
+            // Forces only last byte to be shifted in
+            FUNC3_BYTE, FUNC3_BYTE_U: begin // SB, LB, LBU
                 case (offset)
                     2'b00: begin
                         byte_enable = 4'b0001;
-                        data = (reg_read & 32'h000000FF); //no shift
+                        data = (reg_read & 32'h000000FF); // no shift
                     end
                     2'b01: begin
                         byte_enable = 4'b0010;
-                        data = (reg_read & 32'h000000FF) << 8; //one byte shift
+                        data = (reg_read & 32'h000000FF) << 8; // one byte shift
                     end
                     2'b10: begin
                         byte_enable = 4'b0100;
-                        data = (reg_read & 32'h000000FF) << 16; //2 bytes shift
+                        data = (reg_read & 32'h000000FF) << 16; // 2 bytes shift
                     end
                     2'b11: begin
                         byte_enable = 4'b1000;
-                        data = (reg_read & 32'h000000FF) << 24; //3 bytes shift
+                        data = (reg_read & 32'h000000FF) << 24; // 3 bytes shift
                     end
                     default: byte_enable = 4'b0000;
                 endcase
             end
 
-            FUNC3_HALFWORD, FUNC3_HALFWORD_U: begin //SH, LH, LHU
-                //SH --> store half word
-                //Now bit mask masks bottom 16 bits instead of 8 since sh == store half word(16 bits)
+            FUNC3_HALFWORD, FUNC3_HALFWORD_U: begin // SH, LH, LHU
+                // SH --> store half word
+                // Now bit mask masks bottom 16 bits instead of 8 since sh == store half word(16 bits)
                 case (offset) 
                     2'b00: begin
                         byte_enable = 4'b0011;
@@ -47,13 +47,13 @@ module byte_enable_decoder import cpu_core_pkg::*; (
                     end
                     2'b10: begin
                         byte_enable = 4'b1100;
-                        data = (reg_read & 32'h0000FFFF) << 16; //shift 16 bits
+                        data = (reg_read & 32'h0000FFFF) << 16; // shift 16 bits
                     end
                     default: byte_enable = 4'b0000;
                 endcase
             end
 
-            FUNC3_WORD: begin //SW
+            FUNC3_WORD: begin // SW
                 byte_enable = (offset == 2'b00) ? 4'b1111: 4'b0000;
                 data = reg_read;
             end

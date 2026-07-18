@@ -8,10 +8,10 @@ module csrfile import cpu_core_pkg::*; (
 
     output logic [31:0] read_data,  // current value of the addressed CSR (0 if unmapped)
 
-    //CSR flags
+    // CSR flags
     output logic flush_cache_flag,   // 1-cycle pulse telling the cache to flush
-    output logic [31:0] non_cachable_base_address, //base address for non cachable range
-    output logic [31:0] non_cachable_limit_address //limit address for non cachable range
+    output logic [31:0] non_cachable_base_address, // base address for non cachable range
+    output logic [31:0] non_cachable_limit_address // limit address for non cachable range
 );
 
     logic [31:0] flush_cache, next_flush_cache;
@@ -19,17 +19,73 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] non_cachable_limit, next_non_cachable_limit;
     logic [31:0] write_back_to_csr; // value the addressed CSR would take
 
+    // Trap handling CSRs
+    logic [31:0] mstatus, next_mstatus; // CSR_MSTATUS
+    logic [31:0] mie, next_mie;         // CSR_MIE
+    logic [31:0] mip, next_mip;         // CSR_MIP
+    logic [31:0] mtvec, next_mtvec;     // CSR_MTVEC
+    logic [31:0] mepc, next_mepc;       // CSR_MEPC
+    logic [31:0] mcause, next_mcause;   // CSR_MCAUSE
+
     always_ff @(posedge clk) begin
         if (~rst_n) begin
             flush_cache <= 32'd0; 
             non_cachable_base <= 32'd0;
             non_cachable_limit <= 32'd0;
+
+            // Traps
+            mstatus <= 32'd0;
+            mie <= 32'd0;
+            mip <= 32'd0;
+            mtvec <= 32'd0;
+            mepc <= 32'd0;
+            mcause <= 32'd0;
         end
         else begin
             flush_cache <= next_flush_cache;
             non_cachable_base <= next_non_cachable_base;
             non_cachable_limit <= next_non_cachable_limit;
+
+            // Traps
+            mstatus <= next_mstatus;
+            mie <= next_mie;
+            mip <= next_mip;
+            mtvec <= next_mtvec;
+            mepc <= next_mepc;
+            mcause <= next_mcause;
         end
+    end
+
+    // Trap CSR logic
+    always_comb begin
+        // mstatus
+        next_mstatus = mstatus;
+        if (write_enable & (address == CSR_MSTATUS)) begin
+            next_mstatus = write_back_to_csr;
+        end
+
+        // mie
+        next_mie = mie;
+        if (write_enable & (address == CSR_MIE)) begin
+            next_mie = write_back_to_csr;
+        end
+
+        // mtvec
+        next_mtvec = mtvec;
+        if (write_enable & (address == CSR_MTVEC)) begin
+            next_mtvec = write_back_to_csr;
+        end
+
+        // mip
+        next_mip = mip;
+
+        // mepc
+        next_mepc = mepc;
+        if (write_enable & (address == CSR_MEPC)) begin
+            next_mepc = write_back_to_csr;
+        end
+
+        next_mcause = mcause;
     end
 
     // Next-state logic for the flush-cache CSR.
@@ -48,7 +104,7 @@ module csrfile import cpu_core_pkg::*; (
         end
     end
 
-    //logic for the cachable base and limit CSR
+    // logic for the cachable base and limit CSR
     always_comb begin
         next_non_cachable_base = non_cachable_base;
         if (write_enable & (address == CSR_NON_CACHABLE_BASE)) begin
@@ -67,6 +123,13 @@ module csrfile import cpu_core_pkg::*; (
             CSR_FLUSH_CACHE: read_data = flush_cache;
             CSR_NON_CACHABLE_BASE: read_data = non_cachable_base;
             CSR_NON_CACHABLE_LIMIT: read_data = non_cachable_limit;
+
+            CSR_MSTATUS: read_data = mstatus;
+            CSR_MIE:     read_data = mie;
+            CSR_MIP:     read_data = mip;
+            CSR_MTVEC:   read_data = mtvec;
+            CSR_MEPC:    read_data = mepc;
+            CSR_MCAUSE:  read_data = mcause;
 
             default: read_data = 32'd0;
         endcase
@@ -94,7 +157,7 @@ module csrfile import cpu_core_pkg::*; (
         endcase
     end
 
-    //Output CSR signals assignment
+    // Output CSR signals assignment
     // Bit 0 of the flush CSR is the flush request line into the cache.
     assign flush_cache_flag = flush_cache[0];
     assign non_cachable_base_address = non_cachable_base;

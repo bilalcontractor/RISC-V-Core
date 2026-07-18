@@ -2,12 +2,12 @@
 //
 // cocotbext-axi's AxiRam needs FLAT top-level AXI signals (axi_awvalid, ...),
 // but the cache exposes a SystemVerilog `axi_interface` port. This wrapper:
-//   * instantiates the cache as `cache_system` (the name the testbench reaches
-//     into for white-box checks),
-//   * renames the CPU ports to cpu_* so the testbench reads clearly,
-//   * splits the axi_interface into flat master signals for cocotbext-axi,
-//   * surfaces the cache_state / set_ptr debug taps as top-level ports so the
-//     testbench does not have to reach into internals for them.
+//* instantiates the cache as `cache_system` (the name the testbench reaches
+// into for white-box checks),
+//* renames the CPU ports to cpu_* so the testbench reads clearly,
+//* splits the axi_interface into flat master signals for cocotbext-axi,
+//* surfaces the cache_state / set_ptr debug taps as top-level ports so the
+// testbench does not have to reach into internals for them.
 module cache_axi_wrapper import cpu_core_pkg::*; #(
     parameter CACHE_SIZE = 128,
     parameter NUM_SETS   = 16
@@ -16,7 +16,7 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     input  logic        rst_n,
     input  logic        aclk,
 
-    // ---- CPU side ----
+    //---- CPU side ----
     input  logic [31:0] cpu_address,
     input  logic [31:0] cpu_write_data,
     input  logic        cpu_read_enable,
@@ -26,11 +26,11 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     output logic [31:0] cpu_read_data,
     output logic        cpu_cache_stall,
 
-    // ---- debug taps ----
+    //---- debug taps ----
     output logic [3:0]  cpu_cache_state,
     output logic [6:0]  cpu_set_ptr,
 
-    // ---- Flattened AXI master signals (for cocotbext-axi AxiRam) ----
+    //---- Flattened AXI master signals (for cocotbext-axi AxiRam) ----
     // Write address
     output logic [3:0]  axi_awid,
     output logic [31:0] axi_awaddr,
@@ -70,7 +70,7 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     // The interface the cache actually talks to
     axi_interface axi_if();
 
-    // ---- master -> slave : driven by the cache, exported to the top ----
+    //---- master -> slave : driven by the cache, exported to the top ----
     assign axi_awid    = axi_if.awid;
     assign axi_awaddr  = axi_if.awaddr;
     assign axi_awlen   = axi_if.awlen;
@@ -90,7 +90,7 @@ module cache_axi_wrapper import cpu_core_pkg::*; #(
     assign axi_arvalid = axi_if.arvalid;
     assign axi_rready  = axi_if.rready;
 
-    // ---- slave -> master : driven by the AxiRam, fed into the cache ----
+    //---- slave -> master : driven by the AxiRam, fed into the cache ----
     assign axi_if.awready = axi_awready;
     assign axi_if.wready  = axi_wready;
     assign axi_if.bid     = axi_bid;
