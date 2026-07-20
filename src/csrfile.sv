@@ -9,13 +9,19 @@ module csrfile import cpu_core_pkg::*; (
     // Interrupts in
     input logic timer_interrupt,
     input logic software_interrupt,
-    input logic extternal_interrupt,
+    input logic external_interrupt,
 
     // PC of the instruction currently executing; latched into mepc on a trap
     input logic [31:0] current_core_pc,
+    // Instruction word currently in flight; latched into mtval on an illegal instruction
+    input logic [31:0] current_core_fetch_instr,
+    // Candidate faulting addresses; latched into mtval on a misalignment
+    input exception_target_addr_type exception_target_addr,
 
-    // Asserted when the core executes an MRET instruction (return from trap)
+    // Signals from control
     input logic mret,
+    input logic exception,
+    input logic [30:0] exception_cause, 
 
     output logic [31:0] read_data,  // current value of the addressed CSR (0 if unmapped)
 
@@ -39,6 +45,7 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] mtvec, next_mtvec;     // MACHINE TRAP VECTOR: base address the PC jumps to on a trap
     logic [31:0] mepc, next_mepc;       // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
     logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
+    logic [31:0] mtval, next_mtval;     // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
 
     always_ff @(posedge clk) begin
         if (~rst_n) begin
@@ -53,6 +60,7 @@ module csrfile import cpu_core_pkg::*; (
             mtvec <= 32'd0;
             mepc <= 32'd0;
             mcause <= 32'd0;
+            mtval <= 32'd0;
         end
         else begin
             flush_cache <= next_flush_cache;
@@ -66,6 +74,7 @@ module csrfile import cpu_core_pkg::*; (
             mtvec <= next_mtvec;
             mepc <= next_mepc;
             mcause <= next_mcause;
+            mtval <= next_mtval;
         end
     end
 
@@ -120,7 +129,7 @@ module csrfile import cpu_core_pkg::*; (
         end
         
         // mcause
-        next_mcause = mcause;
+        next_mcause = mcause; //mcause is a value based signal, not one hot encoding/bit based
         if (trap) begin
             if (|(mie & mip)) begin
                 // If its an interrupt
@@ -135,6 +144,28 @@ module csrfile import cpu_core_pkg::*; (
                     next_mcause[30:0] = 31'd3;
                 end
             end
+
+            else if (exception) begin
+                next_mcause[31] = 0;
+                next_mcause[31] = exception_cause;
+            end
+        end
+
+        // mtval
+        next_mtval = mtval;
+        if (trap && exception) begin
+            case (exception_cause)
+                EXC_INSTR_ADDR_MISALIGNED: next_mtval = exception_target_addr.second_adder_addr;
+                EXC_ILLEGAL_INSTR:         next_mtval = current_core_fetch_instr;
+                EXC_LOAD_ADDR_MISALIGNED:  next_mtval = exception_target_addr.alu_addr;
+                EXC_STORE_ADDR_MISALIGNED: next_mtval = exception_target_addr.alu_addr;
+                EXC_BREAKPOINT:            next_mtval = current_core_pc;
+                EXC_ECALL_M:               next_mtval = 32'd0;
+                default:                   next_mtval = mtval;
+            endcase
+        end
+        else if (~stall & write_enable & (address == CSR_MTVAL)) begin
+            next_mtval = write_back_to_csr;
         end
     end
 
@@ -180,6 +211,7 @@ module csrfile import cpu_core_pkg::*; (
             CSR_MTVEC:   read_data = mtvec;
             CSR_MEPC:    read_data = mepc;
             CSR_MCAUSE:  read_data = mcause;
+            CSR_MTVAL:   read_data = mtval;
 
             default: read_data = 32'd0;
         endcase
@@ -214,6 +246,6 @@ module csrfile import cpu_core_pkg::*; (
     assign non_cachable_limit_address = non_cachable_limit;
 
     // Output trap signal assignment
-    assign trap = (|(mie & mip )) && mstatus[3];
+    assign trap = ((|(mie & mip )) && mstatus[3]) || exception;
     
 endmodule

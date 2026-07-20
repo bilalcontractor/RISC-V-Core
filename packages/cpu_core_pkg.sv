@@ -36,12 +36,12 @@ package cpu_core_pkg;
 
     // Func3 Branches
     typedef enum logic [2:0] {
-    FUNC3_BEQ  = 3'b000,
-    FUNC3_BNE  = 3'b001,
-    FUNC3_BLT  = 3'b100,
-    FUNC3_BGE  = 3'b101,
-    FUNC3_BLTU  = 3'b110,
-    FUNC3_BGEU  = 3'b111
+        FUNC3_BEQ  = 3'b000,
+        FUNC3_BNE  = 3'b001,
+        FUNC3_BLT  = 3'b100,
+        FUNC3_BGE  = 3'b101,
+        FUNC3_BLTU  = 3'b110,
+        FUNC3_BGEU  = 3'b111
     } func3_branch_type;
 
     // LOAD & STORES FUNC3
@@ -117,9 +117,32 @@ package cpu_core_pkg;
         CSR_MTVEC               = 12'h305,  // machine trap-vector base address
         CSR_MEPC                = 12'h341,  // machine exception program counter
         CSR_MCAUSE              = 12'h342,  // machine trap cause
+        CSR_MTVAL               = 12'h343,  // machine trap value (address/instruction)
         CSR_MIP                 = 12'h344   // machine interrupt-pending
-        // future CSRs ...
     } csr_address_type;
+
+    // Exception causes : mcause[31] == 0
+    typedef enum logic [30:0] {
+        EXC_INSTR_ADDR_MISALIGNED = 31'd0,  // misaligned jump/branch target
+        EXC_ILLEGAL_INSTR         = 31'd2,  // illegal instruction
+        EXC_BREAKPOINT            = 31'd3,  // ebreak
+        EXC_LOAD_ADDR_MISALIGNED  = 31'd4,  // misaligned load address
+        EXC_STORE_ADDR_MISALIGNED = 31'd6,  // misaligned store address
+        EXC_ECALL_M               = 31'd11  // ecall taken from machine mode
+    } exception_cause_type;
+
+    // Interrupt causes : mcause[31] == 1
+    typedef enum logic [30:0] {
+        INT_M_SOFTWARE = 31'd3,
+        INT_M_TIMER    = 31'd7,
+        INT_M_EXTERNAL = 31'd11
+    } interrupt_cause_type;
+
+   
+    typedef struct packed {
+        logic [31:0] second_adder_addr; // branch/jump target adder result
+        logic [31:0] alu_addr;          // ALU-computed load/store address
+    } exception_target_addr_type;
 
     typedef enum logic [3:0] {
         IDLE,                  // cache is not doing anything . stall not asserted
