@@ -19,7 +19,7 @@ module csrfile import cpu_core_pkg::*; (
     input exception_target_addr_type exception_target_addr,
 
     // Signals from control
-    input logic mret,
+    input logic mret,               // MACHINE MODE RETURN FROM TRAP
     input logic exception,
     input logic [30:0] exception_cause, 
 
@@ -46,6 +46,7 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] mepc, next_mepc;       // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
     logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
     logic [31:0] mtval, next_mtval;     // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
+    logic trap_taken;
 
     always_ff @(posedge clk) begin
         if (~rst_n) begin
@@ -61,6 +62,8 @@ module csrfile import cpu_core_pkg::*; (
             mepc <= 32'd0;
             mcause <= 32'd0;
             mtval <= 32'd0;
+            
+            trap_taken <= 1'b0;
         end
         else begin
             flush_cache <= next_flush_cache;
@@ -75,19 +78,27 @@ module csrfile import cpu_core_pkg::*; (
             mepc <= next_mepc;
             mcause <= next_mcause;
             mtval <= next_mtval;
+
+            trap_taken <= trap_taken;
+            if (trap) trap_taken <= 1'b1;
+            else if (mret) trap_taken <= 1'b0;
         end
     end
 
     // Trap CSR logic
     always_comb begin
-        // mstatus
+        /* 
+           mstatus
+           bit 3 = MIE -> MACHINE INTERRUPT ENABLE
+           bit 7 = MPIE -> MACHINE PREVIOUS INTERRUPT ENABLE       
+        */
         next_mstatus = mstatus;
         if (trap) begin
-            next_mstatus[7] = next_mstatus[3]; // Save currect value
-            next_mstatus[3] = 0;
+            next_mstatus[7] = next_mstatus[3]; // Save currect value(MPIE = MIE)
+            next_mstatus[3] = 0; // MIE = 0
         end
         else if (mret) begin
-            next_mstatus[3] = next_mstatus[7]; // Restores old value when returning
+            next_mstatus[3] = next_mstatus[7]; // Restores old value when returning(MIE = MPIE)
         end
         else if (write_enable & (address == CSR_MSTATUS)) begin
             next_mstatus = write_back_to_csr;
@@ -147,7 +158,7 @@ module csrfile import cpu_core_pkg::*; (
 
             else if (exception) begin
                 next_mcause[31] = 0;
-                next_mcause[31] = exception_cause;
+                next_mcause[30:0] = exception_cause;
             end
         end
 
@@ -164,7 +175,7 @@ module csrfile import cpu_core_pkg::*; (
                 default:                   next_mtval = mtval;
             endcase
         end
-        else if (~stall & write_enable & (address == CSR_MTVAL)) begin
+        else if (write_enable & (address == CSR_MTVAL)) begin
             next_mtval = write_back_to_csr;
         end
     end
@@ -246,6 +257,6 @@ module csrfile import cpu_core_pkg::*; (
     assign non_cachable_limit_address = non_cachable_limit;
 
     // Output trap signal assignment
-    assign trap = ((|(mie & mip )) && mstatus[3]) || exception;
+    assign trap = (((|(mie & mip )) && mstatus[3]) || exception) & ~trap_taken;
     
 endmodule
