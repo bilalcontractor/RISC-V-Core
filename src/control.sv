@@ -4,6 +4,9 @@ module control import cpu_core_pkg::*; (
     input  logic [6:0] func7,
     input  logic alu_zero,
     input  logic alu_last,
+    input  logic trap,
+    input  logic [31:0] instruction,
+    input  logic i_cache_stall,
 
     output alu_control_type alu_control,
     output imm_source_type imm_source,
@@ -15,7 +18,10 @@ module control import cpu_core_pkg::*; (
     output pc_source_type pc_source,
     output logic second_add_source,
     output logic csr_write_back_source,
-    output logic csr_write_enable
+    output logic csr_write_enable,
+    output logic mret,
+    output logic exception,
+    output logic [30:0] exception_cause
 );
 
     // Main Decoder
@@ -38,6 +44,12 @@ module control import cpu_core_pkg::*; (
         mem_read = 1'b0;
         csr_write_enable = 1'b0;
         csr_write_back_source = 1'b0;
+        mret = 1'b0;
+        branch = 1'b0;
+
+        // exception / exception_cause are owned by the instruction-validity
+        // block below (single driver), so the main decoder does not touch them.
+
         case (op)
             // I type(lw)
             OPCODE_I_TYPE_LOAD : begin // opcode for load
@@ -128,21 +140,136 @@ module control import cpu_core_pkg::*; (
             end
             // CSR instructions
             OPCODE_CSR: begin
-                imm_source = IMM_CSR_TYPE;
-                mem_write = 1'b0;
-                reg_write = 1'b1;
-                write_back_source = WB_CSR_READ;
-                // Determine write back source from MSB of func3
-                csr_write_back_source = func3[2];
-                csr_write_enable = 1'b1;
+                case (func3) 
+                    // ECALL + EBREAK -> Traps
+                    3'b000: begin
+                        // ECALL/EBREAK illegal-vs-trap handling lives in the
+                        // instruction-validity block below; here we only need MRET.
+                        if (instruction[31:20] == SYSTEM_MRET) begin // MRET
+                            mret = 1'b1;
+                        end
+                    end
+
+                    // Actual CSR instructions
+                    3'b001, 3'b010, 3'b011, 3'b101, 3'b110, 3'b111: begin
+                        imm_source = IMM_CSR_TYPE;
+                        mem_write = 1'b0;
+                        reg_write = 1'b1;
+                        write_back_source = WB_CSR_READ;
+                        // Determine write back source from MSB of func3
+                        csr_write_back_source = func3[2];
+                        csr_write_enable = 1'b1;
+                    end
+                    
+                endcase
             end
             default: begin
                 reg_write = 1'b0;
                 imm_source = IMM_I_TYPE;
                 mem_write = 1'b0;
                 alu_op = ALU_OP_LOAD_STORE;
-                branch = 1'b0;
             end
+        endcase
+    end
+
+    // Determine validity of instructions -> illegal-instruction detection.
+    // Single owner of exception / exception_cause. Guilty (illegal) until an
+    // opcode proves itself legal. A stalled fetch has no real instruction on
+    // the bus, so it can never be illegal (exception defaults low while stalled).
+    always_comb begin
+        exception       = ~i_cache_stall;
+        exception_cause = EXC_ILLEGAL_INSTR;
+
+        case (op)
+            OPCODE_I_TYPE_LOAD: begin
+                if ((func3 == 3'b000) || // LB
+                    (func3 == 3'b001) || // LH
+                    (func3 == 3'b010) || // LW
+                    (func3 == 3'b100) || // LBU
+                    (func3 == 3'b101)    // LHU
+                ) exception = 1'b0;
+            end
+
+            OPCODE_I_TYPE_ALU: begin
+                if ((func3 == 3'b000) || // ADDI
+                    (func3 == 3'b010) || // SLTI
+                    (func3 == 3'b011) || // SLTIU
+                    (func3 == 3'b100) || // XORI
+                    (func3 == 3'b110) || // ORI
+                    (func3 == 3'b111) || // ANDI
+                    (func3 == 3'b001 && func7 == 7'd0) ||                       // SLLI
+                    (func3 == 3'b101 && (func7 == 7'd0 || func7 == 7'b0100000)) // SRLI, SRAI
+                ) exception = 1'b0;
+            end
+
+            OPCODE_S_TYPE: begin
+                if ((func3 == 3'b000) || // SB
+                    (func3 == 3'b001) || // SH
+                    (func3 == 3'b010)    // SW
+                ) exception = 1'b0;
+            end
+
+            OPCODE_R_TYPE: begin
+                if ((func3 == 3'b000 && (func7 == 7'd0 || func7 == 7'b0100000)) || // ADD, SUB
+                    (func3 == 3'b001 && func7 == 7'd0) || // SLL
+                    (func3 == 3'b010 && func7 == 7'd0) || // SLT
+                    (func3 == 3'b011 && func7 == 7'd0) || // SLTU
+                    (func3 == 3'b100 && func7 == 7'd0) || // XOR
+                    (func3 == 3'b101 && (func7 == 7'd0 || func7 == 7'b0100000)) || // SRL, SRA
+                    (func3 == 3'b110 && func7 == 7'd0) || // OR
+                    (func3 == 3'b111 && func7 == 7'd0)    // AND
+                ) exception = 1'b0;
+            end
+
+            OPCODE_B_TYPE: begin
+                if ((func3 == 3'b000) || // BEQ
+                    (func3 == 3'b001) || // BNE
+                    (func3 == 3'b100) || // BLT
+                    (func3 == 3'b101) || // BGE
+                    (func3 == 3'b110) || // BLTU
+                    (func3 == 3'b111)    // BGEU
+                ) exception = 1'b0;
+            end
+
+            // JAL: no func3/func7 constraint
+            OPCODE_J_TYPE: exception = 1'b0;
+
+            // JALR: func3 must be 000
+            OPCODE_J_TYPE_JALR: begin
+                if (func3 == 3'b000) exception = 1'b0;
+            end
+
+            // LUI / AUIPC: no func3/func7 constraint
+            OPCODE_U_TYPE_LUI,
+            OPCODE_U_TYPE_AUIPC: exception = 1'b0;
+
+            OPCODE_CSR: begin
+                case (func3)
+                    3'b000: begin
+                        // ECALL/EBREAK are legal instructions that deliberately
+                        // trap with their own cause; MRET is legal (handled in the
+                        // main decoder). Anything else with func3==000 is illegal.
+                        if (instruction[31:20] == SYSTEM_ECALL) begin
+                            exception       = 1'b1;
+                            exception_cause = EXC_ECALL_M;
+                        end
+                        else if (instruction[31:20] == SYSTEM_EBREAK) begin
+                            exception       = 1'b1;
+                            exception_cause = EXC_BREAKPOINT;
+                        end
+                        else if (instruction[31:20] == SYSTEM_MRET) begin
+                            exception = 1'b0;
+                        end
+                        // else: leave as illegal
+                    end
+                    // CSRRW/S/C and their immediate variants; func3==100 is illegal
+                    3'b001, 3'b010, 3'b011,
+                    3'b101, 3'b110, 3'b111: exception = 1'b0;
+                    default: ; // func3 == 100 -> illegal
+                endcase
+            end
+
+            default: ; // unknown opcode -> illegal (exception stays asserted)
         endcase
     end
 
@@ -201,8 +328,14 @@ module control import cpu_core_pkg::*; (
 
     //// Redirect the PC only on a real branch whose condition holds, or on a jump(jal/jalr)
     always_comb begin
-        if (jalr) pc_source = PC_ALU_RESULT; // jalr --> alu_result
+        if (trap) pc_source = PC_MTVEC;
+
+        else if (mret) pc_source = PC_MEPC;
+
+        else if (jalr) pc_source = PC_ALU_RESULT; // jalr --> alu_result
+
         else if ((assert_branch && branch) | jump) pc_source = PC_TARGET; // branch/jal --> pc_target
+
         else pc_source = PC_PLUS_4; // pc + 4
     end
 

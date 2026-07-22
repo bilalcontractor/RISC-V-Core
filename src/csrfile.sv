@@ -1,6 +1,7 @@
 module csrfile import cpu_core_pkg::*; (
     input logic clk,
     input logic rst_n,
+    input logic stall,
     input logic [2:0] func3,        // CSR op: write / set / clear (csrrw / csrrs / csrrc)
     input logic [31:0] write_data,  // value coming from the source register (rs1)
     input logic write_enable,
@@ -33,6 +34,14 @@ module csrfile import cpu_core_pkg::*; (
     output logic trap // Should we trap or not?
 );
 
+    // mstatus fields
+    localparam int MSTATUS_MIE  = 3;   // machine interrupt enable
+    localparam int MSTATUS_MPIE = 7;   // machine previous interrupt enable
+    // mie/mip interrupt-source bits (positions match their mcause codes)
+    localparam int IRQ_SOFT  = 3;
+    localparam int IRQ_TIMER = 7;
+    localparam int IRQ_EXT   = 11;
+
     logic [31:0] flush_cache, next_flush_cache;
     logic [31:0] non_cachable_base, next_non_cachable_base;
     logic [31:0] non_cachable_limit, next_non_cachable_limit;
@@ -47,6 +56,19 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
     logic [31:0] mtval, next_mtval;     // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
     logic trap_taken;
+
+    // mret only retires when the pipeline can actually redirect, so its CSR side
+    // effects (mstatus restore, trap_taken clear) are gated on ~stall
+    logic mret_commit;
+    assign mret_commit = mret & ~stall;
+
+    // Interrupt sources that are both pending (mip) and locally enabled (mie).
+    logic [31:0] active_interrupts;
+    assign active_interrupts = mie & mip;
+
+    // An interrupt is only TAKEN when a source is active AND globally enabled (mstatus.MIE). 
+    logic take_interrupt;
+    assign take_interrupt = (|active_interrupts) && mstatus[MSTATUS_MIE];
 
     always_ff @(posedge clk) begin
         if (~rst_n) begin
@@ -81,7 +103,7 @@ module csrfile import cpu_core_pkg::*; (
 
             trap_taken <= trap_taken;
             if (trap) trap_taken <= 1'b1;
-            else if (mret) trap_taken <= 1'b0;
+            else if (mret_commit) trap_taken <= 1'b0;
         end
     end
 
@@ -94,11 +116,11 @@ module csrfile import cpu_core_pkg::*; (
         */
         next_mstatus = mstatus;
         if (trap) begin
-            next_mstatus[7] = next_mstatus[3]; // Save currect value(MPIE = MIE)
-            next_mstatus[3] = 0; // MIE = 0
+            next_mstatus[MSTATUS_MPIE] = next_mstatus[MSTATUS_MIE]; // Save current value(MPIE = MIE)
+            next_mstatus[MSTATUS_MIE] = 0; // MIE = 0
         end
-        else if (mret) begin
-            next_mstatus[3] = next_mstatus[7]; // Restores old value when returning(MIE = MPIE)
+        else if (mret_commit) begin
+            next_mstatus[MSTATUS_MIE] = next_mstatus[MSTATUS_MPIE]; // Restores old value when returning(MIE = MPIE)
         end
         else if (write_enable & (address == CSR_MSTATUS)) begin
             next_mstatus = write_back_to_csr;
@@ -127,8 +149,8 @@ module csrfile import cpu_core_pkg::*; (
            timer_interrupt, external_interrupt) into their respective positions, then do bitwise OR
            to combine everything into one vector
         */
-        next_mip = (32'(software_interrupt) << 3) | (32'(timer_interrupt) << 7) 
-            | (32'(external_interrupt) << 11);
+        next_mip = (32'(software_interrupt) << IRQ_SOFT) | (32'(timer_interrupt) << IRQ_TIMER)
+            | (32'(external_interrupt) << IRQ_EXT);
 
         // mepc
         next_mepc = mepc;
@@ -142,18 +164,12 @@ module csrfile import cpu_core_pkg::*; (
         // mcause
         next_mcause = mcause; //mcause is a value based signal, not one hot encoding/bit based
         if (trap) begin
-            if (|(mie & mip)) begin
-                // If its an interrupt
+            if (take_interrupt) begin
+                // If its an interrupt (external > timer > software priority)
                 next_mcause[31] = 1;
-                if (mip[11] && mie[11]) begin // External
-                    next_mcause[30:0] = 31'd11;
-                end
-                else if (mip[7] && mie[7]) begin // Timer
-                    next_mcause[30:0] = 31'd7;
-                end
-                else if (mip[3] && mie[3]) begin // Software
-                    next_mcause[30:0] = 31'd3;
-                end
+                if      (active_interrupts[IRQ_EXT])   next_mcause[30:0] = INT_M_EXTERNAL;
+                else if (active_interrupts[IRQ_TIMER]) next_mcause[30:0] = INT_M_TIMER;
+                else if (active_interrupts[IRQ_SOFT])  next_mcause[30:0] = INT_M_SOFTWARE;
             end
 
             else if (exception) begin
@@ -163,8 +179,11 @@ module csrfile import cpu_core_pkg::*; (
         end
 
         // mtval
+        // Gated on ~take_interrupt so a taken interrupt (which mcause records with
+        // priority) never gets an exception-derived mtval -- interrupts have no
+        // trap value, so mtval holds/stays 0 in that case.
         next_mtval = mtval;
-        if (trap && exception) begin
+        if (trap && exception && ~take_interrupt) begin
             case (exception_cause)
                 EXC_INSTR_ADDR_MISALIGNED: next_mtval = exception_target_addr.second_adder_addr;
                 EXC_ILLEGAL_INSTR:         next_mtval = current_core_fetch_instr;
@@ -257,6 +276,9 @@ module csrfile import cpu_core_pkg::*; (
     assign non_cachable_limit_address = non_cachable_limit;
 
     // Output trap signal assignment
-    assign trap = (((|(mie & mip )) && mstatus[3]) || exception) & ~trap_taken;
+    // ~stall holds the trap off until the pipeline can actually redirect: while
+    // stalled the PC is frozen, so committing trap entry (mepc/mcause/mstatus/
+    // trap_taken, all keyed on `trap`) would desync CSR state from the PC. 
+    assign trap = (take_interrupt || exception) & ~trap_taken & ~stall;
     
 endmodule

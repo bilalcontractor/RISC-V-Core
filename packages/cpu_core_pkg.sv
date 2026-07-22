@@ -65,6 +65,13 @@ package cpu_core_pkg;
         FUNC7_SUB  = 7'b0100000
     } func7_r_type;
 
+    // SYSTEM instructions decoded from instruction[31:20]
+    typedef enum logic [11:0] {
+        SYSTEM_ECALL  = 12'h000,
+        SYSTEM_EBREAK = 12'h001,
+        SYSTEM_MRET   = 12'h302
+    } system_instr_type;
+
     // ALU control arithmetic
     typedef enum logic [3:0] {
         ALU_ADD = 4'b0000,
@@ -99,10 +106,12 @@ package cpu_core_pkg;
     } write_back_source_type;
 
     // Next-PC mux select (control --> cpu next-PC mux)
-    typedef enum logic [1:0] {
-        PC_PLUS_4     = 2'b00, // sequential
-        PC_TARGET     = 2'b01, // branch / jal
-        PC_ALU_RESULT = 2'b10  // jalr
+    typedef enum logic [2:0] {
+        PC_PLUS_4     = 3'b000, // sequential
+        PC_TARGET     = 3'b001, // branch / jal
+        PC_ALU_RESULT = 3'b010, // jalr
+        PC_MTVEC      = 3'b011, // trap entry (mtvec)
+        PC_MEPC       = 3'b100  // trap return (mret --> mepc)
     } pc_source_type;
 
     // CSR addresses (machine-mode, custom read-write region 0x7C0-0x7FF)
