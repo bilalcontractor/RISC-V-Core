@@ -31,7 +31,11 @@ module csrfile import cpu_core_pkg::*; (
     output logic [31:0] non_cachable_base_address, // base address for non cachable range
     output logic [31:0] non_cachable_limit_address, // limit address for non cachable range
 
-    output logic trap // Should we trap or not?
+    output logic trap, // Should we trap or not?
+
+    // mtvec/mepc output for the cpu-level PC mux 
+    output logic [31:0] mtvec_out,
+    output logic [31:0] mepc_out
 );
 
     // mstatus fields
@@ -280,5 +284,10 @@ module csrfile import cpu_core_pkg::*; (
     // stalled the PC is frozen, so committing trap entry (mepc/mcause/mstatus/
     // trap_taken, all keyed on `trap`) would desync CSR state from the PC. 
     assign trap = (take_interrupt || exception) & ~trap_taken & ~stall;
-    
+
+    // Expose the trap-vector base and saved-PC registers so the cpu PC mux can
+    // redirect to them on trap entry (mtvec) and mret return (mepc).
+    assign mtvec_out = mtvec;
+    assign mepc_out  = mepc;
+
 endmodule

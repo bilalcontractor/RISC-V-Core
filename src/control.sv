@@ -7,6 +7,10 @@ module control import cpu_core_pkg::*; (
     input  logic trap,
     input  logic [31:0] instruction,
     input  logic i_cache_stall,
+    // Candidate faulting addresses used for misalignment detection:
+    //   second_adder_addr = instruction-fetch target (branch/jal/jalr)
+    //   alu_addr          = load/store effective address
+    input  exception_target_addr_type exception_target_addr,
 
     output alu_control_type alu_control,
     output imm_source_type imm_source,
@@ -160,7 +164,8 @@ module control import cpu_core_pkg::*; (
                         csr_write_back_source = func3[2];
                         csr_write_enable = 1'b1;
                     end
-                    
+
+                    default: ;
                 endcase
             end
             default: begin
@@ -172,10 +177,21 @@ module control import cpu_core_pkg::*; (
         endcase
     end
 
-    // Determine validity of instructions -> illegal-instruction detection.
-    // Single owner of exception / exception_cause. Guilty (illegal) until an
-    // opcode proves itself legal. A stalled fetch has no real instruction on
-    // the bus, so it can never be illegal (exception defaults low while stalled).
+    // True when `addr` is not naturally aligned for the access width in `func3`.
+    // Byte accesses (LB/LBU/SB) can never be misaligned.
+    function automatic logic ls_misaligned(input logic [2:0] func3, input logic [31:0] addr);
+        case (func3)
+            FUNC3_WORD:                       ls_misaligned = (addr % 4 != 0);
+            FUNC3_HALFWORD, FUNC3_HALFWORD_U: ls_misaligned = (addr % 2 != 0);
+            default:                          ls_misaligned = 1'b0;
+        endcase
+    endfunction
+
+    // The instruction-fetch target must be 4-byte aligned (no compressed ISA).
+    logic instr_target_misaligned;
+    assign instr_target_misaligned = (exception_target_addr.second_adder_addr % 4 != 0);
+
+    // Determine validity of instructions -> illegal-instruction detection + misalignment.
     always_comb begin
         exception       = ~i_cache_stall;
         exception_cause = EXC_ILLEGAL_INSTR;
@@ -187,7 +203,14 @@ module control import cpu_core_pkg::*; (
                     (func3 == 3'b010) || // LW
                     (func3 == 3'b100) || // LBU
                     (func3 == 3'b101)    // LHU
-                ) exception = 1'b0;
+                ) begin
+                    exception = 1'b0;
+        
+                    if (ls_misaligned(func3, exception_target_addr.alu_addr)) begin
+                        exception       = 1'b1;
+                        exception_cause = EXC_LOAD_ADDR_MISALIGNED;
+                    end
+                end
             end
 
             OPCODE_I_TYPE_ALU: begin
@@ -206,7 +229,14 @@ module control import cpu_core_pkg::*; (
                 if ((func3 == 3'b000) || // SB
                     (func3 == 3'b001) || // SH
                     (func3 == 3'b010)    // SW
-                ) exception = 1'b0;
+                ) begin
+                    exception = 1'b0;
+                   
+                    if (ls_misaligned(func3, exception_target_addr.alu_addr)) begin
+                        exception       = 1'b1;
+                        exception_cause = EXC_STORE_ADDR_MISALIGNED;
+                    end
+                end
             end
 
             OPCODE_R_TYPE: begin
@@ -228,15 +258,35 @@ module control import cpu_core_pkg::*; (
                     (func3 == 3'b101) || // BGE
                     (func3 == 3'b110) || // BLTU
                     (func3 == 3'b111)    // BGEU
-                ) exception = 1'b0;
+                ) begin
+                    exception = 1'b0;
+                    // Only a TAKEN branch redirects the fetch, so only a taken
+                    // branch to a misaligned target faults.
+                    if (assert_branch && instr_target_misaligned) begin
+                        exception       = 1'b1;
+                        exception_cause = EXC_INSTR_ADDR_MISALIGNED;
+                    end
+                end
             end
 
-            // JAL: no func3/func7 constraint
-            OPCODE_J_TYPE: exception = 1'b0;
+            // JAL: no func3/func7 constraint. Always taken -> always redirects.
+            OPCODE_J_TYPE: begin
+                exception = 1'b0;
+                if (instr_target_misaligned) begin
+                    exception       = 1'b1;
+                    exception_cause = EXC_INSTR_ADDR_MISALIGNED;
+                end
+            end
 
-            // JALR: func3 must be 000
+            // JALR: func3 must be 000. Always taken -> always redirects.
             OPCODE_J_TYPE_JALR: begin
-                if (func3 == 3'b000) exception = 1'b0;
+                if (func3 == 3'b000) begin
+                    exception = 1'b0;
+                    if (instr_target_misaligned) begin
+                        exception       = 1'b1;
+                        exception_cause = EXC_INSTR_ADDR_MISALIGNED;
+                    end
+                end
             end
 
             // LUI / AUIPC: no func3/func7 constraint

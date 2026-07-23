@@ -24,6 +24,8 @@ module cpu import cpu_core_pkg::*; (
             PC_PLUS_4:     pc_next = pc_plus_four;
             PC_TARGET:     pc_next = pc_target; // a jump
             PC_ALU_RESULT: pc_next = alu_result; // jalr
+            PC_MTVEC:      pc_next = mtvec; // trap entry
+            PC_MEPC:       pc_next = mepc;  // mret return
             default:       pc_next = pc_plus_four;
         endcase
     end
@@ -84,12 +86,39 @@ module cpu import cpu_core_pkg::*; (
     logic csr_write_back_source; // selects rs1 value vs zimm as the CSR write data
     logic csr_write_enable;      // this instruction writes a CSR
 
+    // Trap plumbing between control and csrfile
+    logic trap;                   // csrfile -> control/PC mux: take a trap this cycle
+    logic mret;                   // control -> csrfile/PC mux: return-from-trap
+    logic exception;              // control -> csrfile: this instruction faults
+    logic [30:0] exception_cause; // control -> csrfile: mcause code (interrupt bit excluded)
+    logic [31:0] mepc;            // csrfile -> PC mux: saved PC, mret return target
+    logic [31:0] mtvec;           // csrfile -> PC mux: trap-vector base, trap entry target
+
+    // Candidate faulting addresses latched into mtval on a misalignment, and read
+    // by control for misalignment detection:
+    //   second_adder_addr = instruction-fetch target. For jalr that target is the
+    //     ALU result (rs1+imm); for branch/jal it is the second-adder result.
+    //     Keeping it jalr-aware makes both control's check and mtval correct.
+    //   alu_addr          = ALU result (load/store effective address).
+    logic is_jalr;
+    assign is_jalr = (op == OPCODE_J_TYPE_JALR);
+    exception_target_addr_type exception_target_addr;
+    assign exception_target_addr = '{
+        second_adder_addr: is_jalr ? alu_result : pc_target,
+        alu_addr:          alu_result
+    };
+
     control control(
         .op(op),
         .func3(func3),
         .func7(func7),
         .alu_zero(alu_zero),
         .alu_last(alu_last),
+        // Trap in
+        .trap(trap),
+        .instruction(instruction),
+        .i_cache_stall(i_cache_stall),
+        .exception_target_addr(exception_target_addr),
         // Out
         .alu_control(alu_control),
         .imm_source(imm_source),
@@ -104,7 +133,11 @@ module cpu import cpu_core_pkg::*; (
         .second_add_source(second_add_source),
         // CSR control
         .csr_write_back_source(csr_write_back_source),
-        .csr_write_enable(csr_write_enable)
+        .csr_write_enable(csr_write_enable),
+        // Trap out
+        .mret(mret),
+        .exception(exception),
+        .exception_cause(exception_cause)
     );
 
     // Register file
@@ -165,8 +198,10 @@ module cpu import cpu_core_pkg::*; (
         .read_data1(read_reg1),
         .read_data2(read_reg2),
         // Write In
-        // stop the write if the load is invalid (misaligned) or while stalled (data not ready yet)
-        .write_enable(reg_write & wb_valid & ~global_stall),
+        // stop the write if the load is invalid (misaligned), while stalled (data
+        // not ready yet), or when this instruction is trapping (no rd side-effect,
+        // e.g. a misaligned jal/jalr must not still write pc+4 into rd)
+        .write_enable(reg_write & wb_valid & ~global_stall & ~trap),
         .write_data(write_back_data),
         .address3(destination)
     );
@@ -224,15 +259,34 @@ module cpu import cpu_core_pkg::*; (
     csrfile csr_file (
         .clk(clk),
         .rst_n(rst_n),
+        // freeze trap/mret commit while the PC is frozen by a cache stall
+        .stall(global_stall),
         .func3(func3),
         .write_data(csr_write_data),
-        // only commit the CSR write when the instruction retires (not while stalled)
-        .write_enable(csr_write_enable & ~global_stall),
+        // only commit the CSR write when the instruction retires: not while stalled,
+        // and not when it is trapping (a trapped instruction commits no side-effect)
+        .write_enable(csr_write_enable & ~global_stall & ~trap),
         .address(csr_address),
+        // Interrupt sources: tied off for now (no external interrupt controller yet)
+        .timer_interrupt(1'b0),
+        .software_interrupt(1'b0),
+        .external_interrupt(1'b0),
+        // Trap snapshot inputs
+        .current_core_pc(pc),                       // -> mepc on trap
+        .current_core_fetch_instr(instruction),     // -> mtval on illegal instruction
+        .exception_target_addr(exception_target_addr),
+        // Trap control from the decoder
+        .mret(mret),
+        .exception(exception),
+        .exception_cause(exception_cause),
         .read_data(csr_read_data),
         .flush_cache_flag(flush_cache_flag),
         .non_cachable_base_address(non_cachable_base),
-        .non_cachable_limit_address(non_cachable_limit)
+        .non_cachable_limit_address(non_cachable_limit),
+        .trap(trap),
+        // Trap-target registers for the PC mux
+        .mtvec_out(mtvec),
+        .mepc_out(mepc)
     );
 
     // Load/Store Unit
@@ -303,7 +357,12 @@ module cpu import cpu_core_pkg::*; (
         .address(alu_result),
         .write_data(mem_write_data),
         .read_enable(mem_read_enable),
-        .write_enable(mem_write),
+        // Suppress the store when this instruction faults. Gated on `exception`
+        // (from control, no stall dependency) rather than `trap`: the cache's
+        // stall is combinational in write_enable, and `trap` depends on stall, so
+        // `mem_write & ~trap` would close a combinational loop. (byte_enable is
+        // already 0 for a misaligned store, so memory stays safe regardless.)
+        .write_enable(mem_write & ~exception),
         .byte_enable(mem_byte_enable),
         .csr_flush_order(flush_cache_flag),    // CSR-ordered manual write-back
         .non_cachable_base(non_cachable_base), // MMIO range bounds (from CSRs)
