@@ -19,11 +19,16 @@ module cpu import cpu_core_pkg::*; (
 
     assign pc_plus_four = pc + 4;
 
+    // jalr target: (rs1 + imm) with bit 0 cleared. Shared by the PC mux and
+    // control's misalignment check, check only ever sees the address actually fetched.
+    logic [31:0] jalr_target;
+    assign jalr_target = {alu_result[31:1], 1'b0};
+
     always_comb begin
         case(pc_source)
             PC_PLUS_4:     pc_next = pc_plus_four;
             PC_TARGET:     pc_next = pc_target; // a jump
-            PC_ALU_RESULT: pc_next = alu_result; // jalr
+            PC_ALU_RESULT: pc_next = jalr_target; // jalr
             PC_MTVEC:      pc_next = mtvec; // trap entry
             PC_MEPC:       pc_next = mepc;  // mret return
             default:       pc_next = pc_plus_four;
@@ -94,17 +99,13 @@ module cpu import cpu_core_pkg::*; (
     logic [31:0] mepc;            // csrfile -> PC mux: saved PC, mret return target
     logic [31:0] mtvec;           // csrfile -> PC mux: trap-vector base, trap entry target
 
-    // Candidate faulting addresses latched into mtval on a misalignment, and read
-    // by control for misalignment detection:
-    //   second_adder_addr = instruction-fetch target. For jalr that target is the
-    //     ALU result (rs1+imm); for branch/jal it is the second-adder result.
-    //     Keeping it jalr-aware makes both control's check and mtval correct.
-    //   alu_addr          = ALU result (load/store effective address).
+    // The two addresses this instruction could fault on, for control's misalignment checks
+    // and csrfile's mtval: the fetch target (branch/jal/jalr) and the load/store address.
     logic is_jalr;
     assign is_jalr = (op == OPCODE_J_TYPE_JALR);
     exception_target_addr_type exception_target_addr;
     assign exception_target_addr = '{
-        second_adder_addr: is_jalr ? alu_result : pc_target,
+        second_adder_addr: is_jalr ? jalr_target : pc_target,
         alu_addr:          alu_result
     };
 
@@ -358,10 +359,8 @@ module cpu import cpu_core_pkg::*; (
         .write_data(mem_write_data),
         .read_enable(mem_read_enable),
         // Suppress the store when this instruction faults. Gated on `exception`
-        // (from control, no stall dependency) rather than `trap`: the cache's
-        // stall is combinational in write_enable, and `trap` depends on stall, so
-        // `mem_write & ~trap` would close a combinational loop. (byte_enable is
-        // already 0 for a misaligned store, so memory stays safe regardless.)
+        // rather than `trap`: the cache's stall is combinational in write_enable, 
+        // and `trap` depends on stall, so `mem_write & ~trap` would close a combinational loop. 
         .write_enable(mem_write & ~exception),
         .byte_enable(mem_byte_enable),
         .csr_flush_order(flush_cache_flag),    // CSR-ordered manual write-back
