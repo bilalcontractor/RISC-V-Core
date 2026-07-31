@@ -4,8 +4,9 @@
 
 from cocotb.triggers import RisingEdge, ReadOnly, Timer
 
+# A separate AXI period would need a real aclk port plus CDC in the
+# caches - until then a second Clock is just a second driver on one net.
 CPU_PERIOD = 10        # ns
-AXI_PERIOD = 10
 SETTLE = 1             # ns, let combinational signals settle before sampling
 MEM_BYTES = 2 ** 14    # 16 KiB unified memory (code @ 0x0000, data @ 0x1000)
 
@@ -31,10 +32,9 @@ def hex_to_bin(hex_str):
 
 
 def read_cache(cache_data, index):
-    # Pull word `index` out of the data cache's packed cache_data vector.
+    # Pull word out of the data cache's packed cache_data vector.
     # cache_data is packed [NUM_SETS-1:0][WORDS_PER_LINE-1:0][31:0], so the word
-    # at flat index N (= address[8:2]) lives at bits [N*32 +: 32]. We read the
-    # whole vector as an int and shift, which sidesteps any slice-direction issues.
+    # at flat index N (= address[8:2]) lives at bits [N*32 +: 32]. 
     full = cache_data.value.to_unsigned()
     return (full >> (index * 32)) & 0xFFFFFFFF
 
@@ -54,10 +54,6 @@ async def wait_fetch(dut):
 
 async def tick(dut):
     # Retire exactly one instruction, then realign on the next valid fetch.
-    # global_stall freezes the PC / squashes the reg write, so the instruction
-    # only commits on an unstalled edge: wait the stall out, take the committing
-    # edge, then wait for the next fetch to be valid so `instruction` is safe to
-    # inspect by the caller.
     await settle()
     while dut.cpu_system.global_stall.value == 1:
         await RisingEdge(dut.clk)
@@ -66,11 +62,18 @@ async def tick(dut):
     await wait_fetch(dut)
 
 
+async def step_over_trap(dut):
+    # Run the appended trap handler until it mret's back, leaving the caller on the
+    # instruction after the fault. The handler sits above the program, so back == PC < mtvec.
+    mtvec = int(dut.cpu_system.csr_file.mtvec.value)
+    for _ in range(16):
+        if int(dut.cpu_system.pc.value) < mtvec:
+            return
+        await tick(dut)
+    raise RuntimeError("trap handler did not return to the main program")
+
+
 async def count_cycles(dut, counter):
-    # Tally every clock edge for as long as this runs. Counting here rather than
-    # in the caller's loop is what makes stalls visible: tick() waits global_stall
-    # out, so a loop over tick() sees retired instructions only, and the gap
-    # between that and this counter IS the cache-miss cost.
     while True:
         await RisingEdge(dut.clk)
         counter[0] += 1

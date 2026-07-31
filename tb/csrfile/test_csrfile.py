@@ -10,6 +10,8 @@ RW_REGS = [0x7C0]
 # Machine-mode trap CSR addresses (mirrors csr_address_type in cpu_core_pkg).
 CSR_MSTATUS = 0x300
 CSR_MIE = 0x304
+CSR_MTVEC = 0x305
+CSR_MSCRATCH = 0x340
 CSR_MEPC = 0x341
 CSR_MCAUSE = 0x342
 CSR_MTVAL = 0x343
@@ -23,7 +25,9 @@ EXC_STORE_ADDR_MISALIGNED = 6
 EXC_ECALL_M = 11
 
 # Interrupt cause (mcause[30:0] with mcause[31] == 1)
+INT_M_SOFTWARE = 3
 INT_M_TIMER = 7
+INT_M_EXTERNAL = 11
 
 # mstatus bit positions
 MSTATUS_MIE = 3
@@ -56,11 +60,8 @@ async def reset(dut):
 
 
 def set_exception_target_addr(dut, second_adder_addr, alu_addr):
-    """Drive the packed exception_target_addr struct.
-
-    Depending on the simulator the struct is exposed either as sub-handles or
-    flattened into one 64-bit vector ({second_adder_addr, alu_addr}).
-    """
+    """Drive the packed exception_target_addr struct: sub-handles if the simulator exposes
+    them, else the flattened 64-bit {second_adder_addr, alu_addr} (verilator's path)."""
     try:
         dut.exception_target_addr.second_adder_addr.value = second_adder_addr
         dut.exception_target_addr.alu_addr.value = alu_addr
@@ -259,30 +260,36 @@ async def test_non_cachable_range(dut):
 
 @cocotb.test()
 async def test_interrupt_trap(dut):
-    """An enabled+pending interrupt with mstatus.MIE set raises trap and logs mcause/mepc."""
+    """Each machine-mode interrupt line stays masked until both mie and mstatus.MIE are
+    set, then raises trap and logs its own mcause/mepc."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    await reset(dut)
 
-    # A pending interrupt alone does not trap while mie / mstatus.MIE are clear
-    dut.timer_interrupt.value = 1
-    await RisingEdge(dut.clk)
-    await Timer(2, unit="ns")
-    assert dut.trap.value == 0, "trap fired with mie and mstatus.MIE clear"
+    # The mie bit position equals the cause number (MSIP=3, MTIP=7, MEIP=11).
+    for irq_line, cause in (("timer_interrupt", INT_M_TIMER),
+                            ("software_interrupt", INT_M_SOFTWARE),
+                            ("external_interrupt", INT_M_EXTERNAL)):
+        await reset(dut)
 
-    # Enable the timer interrupt in mie -- still masked by the global mstatus.MIE
-    await csr_write(dut, CSR_MIE, 1 << INT_M_TIMER)
-    assert dut.trap.value == 0, "trap fired with global mstatus.MIE clear"
+        # A pending interrupt alone does not trap while mie / mstatus.MIE are clear
+        getattr(dut, irq_line).value = 1
+        await RisingEdge(dut.clk)
+        await Timer(2, unit="ns")
+        assert dut.trap.value == 0, f"{irq_line}: trap fired with mie and mstatus.MIE clear"
 
-    # Now set the global enable: the trap must assert combinationally
-    dut.current_core_pc.value = 0x0000_1234
-    await csr_write(dut, CSR_MSTATUS, 1 << MSTATUS_MIE)
-    assert dut.trap.value == 1, "trap did not fire for an enabled+pending interrupt"
+        # Enable this line in mie -- still masked by the global mstatus.MIE
+        await csr_write(dut, CSR_MIE, 1 << cause)
+        assert dut.trap.value == 0, f"{irq_line}: trap fired with global mstatus.MIE clear"
 
-    # The trap edge latches mepc and mcause
-    await RisingEdge(dut.clk)
-    await Timer(2, unit="ns")
-    assert await csr_read(dut, CSR_MEPC) == 0x0000_1234
-    assert await csr_read(dut, CSR_MCAUSE) == (1 << 31) | INT_M_TIMER
+        # Now set the global enable: the trap must assert combinationally
+        dut.current_core_pc.value = 0x0000_1234
+        await csr_write(dut, CSR_MSTATUS, 1 << MSTATUS_MIE)
+        assert dut.trap.value == 1, f"{irq_line}: trap did not fire when enabled+pending"
+
+        # The trap edge latches mepc and mcause
+        await RisingEdge(dut.clk)
+        await Timer(2, unit="ns")
+        assert await csr_read(dut, CSR_MEPC) == 0x0000_1234, f"{irq_line}: wrong mepc"
+        assert await csr_read(dut, CSR_MCAUSE) == (1 << 31) | cause, f"{irq_line}: wrong mcause"
 
 
 @cocotb.test()
@@ -361,3 +368,134 @@ async def test_exception_trap_and_mtval(dut):
             f"cause {cause}: got mtval={await csr_read(dut, CSR_MTVAL):08X} "
             f"exp={expected_mtval:08X}"
         )
+
+
+@cocotb.test()
+async def test_trap_is_one_shot(dut):
+    """trap is a single-cycle pulse, so a fault reaches mepc/mcause exactly once: the mask
+    holds across a stall, then re-arms on the next unstalled edge with no mret involved."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    dut.stall.value = 0
+
+    # First cycle of an exception -> trap fires.
+    dut.current_core_pc.value = 0x0000_2000
+    dut.exception.value = 1
+    dut.exception_cause.value = EXC_ILLEGAL_INSTR
+    await Timer(1, unit="ns")
+    assert dut.trap.value == 1, "trap did not fire on the first cycle of an exception"
+
+    # The trap edge latches trap_taken, forcing trap low the next cycle even though the
+    # cause is still asserted -> mepc/mcause are captured exactly once.
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert dut.trap.value == 0, "trap did not self-clear -- trap_taken latch missing"
+
+    # A stall must not release the latch (the faulting instruction hasn't retired yet).
+    dut.stall.value = 1
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert dut.trap.value == 0, "trap re-fired while stalled with trap_taken set"
+
+    # Unstall and clear the fault (the real core has redirected the PC away by now).
+    # The latch self-clears on this unstalled edge, with no mret involved.
+    dut.stall.value = 0
+    dut.exception.value = 0
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+
+    # A fresh exception now traps again: the path re-armed on its own.
+    dut.exception.value = 1
+    await Timer(1, unit="ns")
+    assert dut.trap.value == 1, "trap did not re-arm after the latch self-cleared"
+
+
+@cocotb.test()
+async def test_interrupt_priority(dut):
+    """With software, timer and external all pending and enabled, mcause records the
+    highest-priority source: external > timer > software."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    dut.software_interrupt.value = 1
+    dut.timer_interrupt.value = 1
+    dut.external_interrupt.value = 1
+    dut.current_core_pc.value = 0x0000_3000
+
+    # Enable all three in mie, then the global mstatus.MIE
+    await csr_write(dut, CSR_MIE,
+                    (1 << INT_M_SOFTWARE) | (1 << INT_M_TIMER) | (1 << INT_M_EXTERNAL))
+    await csr_write(dut, CSR_MSTATUS, 1 << MSTATUS_MIE)
+    assert dut.trap.value == 1, "trap did not fire with interrupts pending and enabled"
+
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    assert await csr_read(dut, CSR_MCAUSE) == (1 << 31) | INT_M_EXTERNAL, (
+        "mcause did not pick the external interrupt (highest priority)"
+    )
+
+
+@cocotb.test()
+async def test_mscratch(dut):
+    """mscratch is a plain software scratch word: it holds whatever the three CSR ops
+    leave in it, and no hardware event (trap entry included) ever touches it. The
+    arch-test trap trampoline swaps its save-area pointer through here on every trap,
+    so a value that survives a trap is the property that matters."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    assert await csr_read(dut, CSR_MSCRATCH) == 0, "mscratch did not come out of reset at 0"
+
+    # CSRRW overwrites, CSRRS sets bits, CSRRC clears them.
+    await csr_write(dut, CSR_MSCRATCH, 0xDEADBEEF)
+    assert await csr_read(dut, CSR_MSCRATCH) == 0xDEADBEEF
+
+    await csr_write(dut, CSR_MSCRATCH, 0x0000_0F00, func3=0b010)
+    assert await csr_read(dut, CSR_MSCRATCH) == 0xDEADBFEF
+
+    await csr_write(dut, CSR_MSCRATCH, 0x0000_00EF, func3=0b011)
+    assert await csr_read(dut, CSR_MSCRATCH) == 0xDEADBF00
+
+    # A write aimed at a different CSR must not land here.
+    await csr_write(dut, CSR_MTVEC, 0x8000_0100)
+    assert await csr_read(dut, CSR_MSCRATCH) == 0xDEADBF00, "mscratch aliased another CSR"
+
+    # Taking a trap leaves it alone -- unlike mepc/mcause/mtval it has no trap side effect.
+    dut.current_core_pc.value = 0x8000_0040
+    dut.exception.value = 1
+    dut.exception_cause.value = EXC_ILLEGAL_INSTR
+    await Timer(1, unit="ns")
+    assert dut.trap.value == 1
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    dut.exception.value = 0
+    assert await csr_read(dut, CSR_MSCRATCH) == 0xDEADBF00, "trap entry clobbered mscratch"
+
+    # Reset clears it.
+    await reset(dut)
+    assert await csr_read(dut, CSR_MSCRATCH) == 0
+
+
+@cocotb.test()
+async def test_mtvec_mepc_outputs(dut):
+    """The mtvec_out / mepc_out ports mirror their CSRs: mtvec follows a CSR write,
+    mepc follows the faulting PC latched on a trap."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    # mtvec_out follows a CSR write to mtvec (0x305)
+    await csr_write(dut, CSR_MTVEC, 0x8000_0100)
+    assert int(dut.mtvec_out.value) == 0x8000_0100, "mtvec_out did not follow the CSR write"
+
+    # mepc_out follows mepc, which latches current_core_pc on a trap
+    dut.current_core_pc.value = 0x0000_ABCC
+    dut.exception.value = 1
+    dut.exception_cause.value = EXC_ILLEGAL_INSTR
+    await Timer(1, unit="ns")
+    assert dut.trap.value == 1
+    await RisingEdge(dut.clk)
+    await Timer(2, unit="ns")
+    dut.exception.value = 0
+    assert int(dut.mepc_out.value) == 0x0000_ABCC, "mepc_out did not follow mepc after a trap"
+    # the trap left mtvec untouched
+    assert int(dut.mtvec_out.value) == 0x8000_0100

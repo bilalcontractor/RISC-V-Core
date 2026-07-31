@@ -25,7 +25,7 @@ from cocotb.triggers import RisingEdge, Timer
 from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 from sim_common import (
-    CPU_PERIOD, AXI_PERIOD, MEM_BYTES,
+    CPU_PERIOD, MEM_BYTES,
     cpu_reset, init_memory, wait_fetch, tick, uart_bridge, count_cycles,
 )
 
@@ -86,8 +86,9 @@ async def riscof_signature_test(dut):
     end_signature = int(os.environ["end_signature"], 16)
     write_tohost = int(os.environ["write_tohost"], 16)
 
+    # Single clock domain: the CPU ties its caches' AXI clock to dut.clk internally, so a
+    # second Clock on the same net races and double-samples the PC in the commit loop below.
     cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
-    cocotb.start_soon(Clock(dut.clk, AXI_PERIOD, units="ns").start())
 
     # Full 4 GiB address space: riscv-arch-test binaries are linked for
     # 0x8000_0000 (the spike/sail-riscv convention), well past test_cpu.py's
@@ -117,13 +118,25 @@ async def riscof_signature_test(dut):
     with open("dut.log", "w"):
         pass
 
-    while not dut.cpu_system.pc.value.integer >= write_tohost:
+    # Cap the run so a trap loop fails as a test instead of hanging RISCOF 
+    max_cycles = int(os.environ.get("MAX_CYCLES", "200000"))
+
+    for _ in range(max_cycles):
+        if dut.cpu_system.pc.value.integer >= write_tohost:
+            break
         await Timer(1, units="ps")  # let signals settle before sampling
         line = format_commit_line(dut)
         if line is not None:
             with open("dut.log", "a") as fd:
                 fd.write(line + "\n")
         await RisingEdge(dut.clk)
+    else:
+        raise RuntimeError(
+            f"never reached write_tohost (0x{write_tohost:08X}) in {max_cycles} cycles; "
+            f"PC = 0x{dut.cpu_system.pc.value.integer:08X}. Likely a trap loop - check "
+            f"whether an unexpected exception vectored to mtvec (0 unless the test set it). "
+            f"No signature written."
+        )
 
     dump_dir = os.path.dirname(program_hex)
     dump_path = os.path.join(dump_dir, "DUT-core.signature")
@@ -151,8 +164,8 @@ async def run_program_test(dut):
         )
     max_cycles = int(os.environ.get("MAX_CYCLES", "20000"))
 
+    # Single clock domain (see riscof_signature_test above): drive dut.clk once.
     cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
-    cocotb.start_soon(Clock(dut.clk, AXI_PERIOD, units="ns").start())
 
     axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
                      size=MEM_BYTES, reset_active_level=False)

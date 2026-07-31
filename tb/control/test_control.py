@@ -2,6 +2,34 @@ import cocotb
 from cocotb.triggers import Timer
 from cocotb.types import LogicArray
 
+# Exception causes (mcause[30:0], mirrors exception_cause_type in cpu_core_pkg).
+EXC_ILLEGAL_INSTR = 2
+EXC_BREAKPOINT = 3
+EXC_LOAD_ADDR_MISALIGNED = 4
+EXC_STORE_ADDR_MISALIGNED = 6
+EXC_ECALL_M = 11
+
+# Opcodes (mirrors csr_opcode_type / opcode fields in cpu_core_pkg).
+OPCODE_I_TYPE_LOAD = 0b0000011
+OPCODE_S_TYPE = 0b0100011
+OPCODE_CSR = 0b1110011
+
+# SYSTEM instructions, distinguished by instruction[31:20].
+ECALL = 0x00000073
+EBREAK = 0x00100073
+MRET = 0x30200073
+
+
+def set_exception_target_addr(dut, second_adder_addr, alu_addr):
+    """Drive the packed exception_target_addr struct: sub-handles if the simulator exposes
+    them, else the flattened 64-bit {second_adder_addr, alu_addr} (verilator's path)."""
+    try:
+        dut.exception_target_addr.second_adder_addr.value = second_adder_addr
+        dut.exception_target_addr.alu_addr.value = alu_addr
+    except AttributeError:
+        dut.exception_target_addr.value = (second_adder_addr << 32) | alu_addr
+
+
 async def set_unknown(dut):
     # Set all input to unknown before each test
     await Timer(1, units="ns")
@@ -26,7 +54,7 @@ async def lw_control_test(dut):
     assert dut.imm_source.value == "000"
     assert dut.mem_write.value == "0"
     assert dut.reg_write.value == "1"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
     
 @cocotb.test()
 async def sw_control_test(dut):
@@ -39,7 +67,7 @@ async def sw_control_test(dut):
     assert dut.imm_source.value == "001"
     assert dut.mem_write.value == "1"
     assert dut.reg_write.value == "0"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def add_control_test(dut):
@@ -56,7 +84,7 @@ async def add_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
     
 @cocotb.test()
 async def and_control_test(dut):
@@ -73,7 +101,7 @@ async def and_control_test(dut):
     # Datapath mux sources
     assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
     
 @cocotb.test()
 async def or_control_test(dut):
@@ -89,7 +117,7 @@ async def or_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
     
 @cocotb.test()
 async def beq_control_test(dut):
@@ -107,13 +135,13 @@ async def beq_control_test(dut):
     assert dut.reg_write.value == "0"
     assert dut.alu_source.value == "0"
     assert dut.branch.value == "1"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
     # Test if branching condition is met
     await Timer(3, units="ns")
     dut.alu_zero.value = 0b1
     await Timer(1, units="ns")
-    assert dut.pc_source.value == "01"
+    assert dut.pc_source.value == "001"
 
 @cocotb.test()
 async def jal_control_test(dut):
@@ -128,7 +156,7 @@ async def jal_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.branch.value == "0"
     assert dut.jump.value == "1"
-    assert dut.pc_source.value == "01"
+    assert dut.pc_source.value == "001"
     assert dut.write_back_source.value == "010"
     
 @cocotb.test()
@@ -148,7 +176,7 @@ async def addi_control_test(dut):
     # Datapath mux sources
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def xori_control_test(dut):
@@ -167,7 +195,7 @@ async def xori_control_test(dut):
     # Datapath mux sources
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def andi_control_test(dut):
@@ -184,7 +212,7 @@ async def andi_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def ori_control_test(dut):
@@ -201,7 +229,7 @@ async def ori_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def slli_control_test(dut):
@@ -219,7 +247,7 @@ async def slli_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def srli_control_test(dut):
@@ -237,7 +265,7 @@ async def srli_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def srai_control_test(dut):
@@ -255,7 +283,7 @@ async def srai_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "1"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
     
 @cocotb.test()
 async def sub_control_test(dut):
@@ -272,7 +300,7 @@ async def sub_control_test(dut):
     assert dut.reg_write.value == "1"
     assert dut.alu_source.value == "0"
     assert dut.write_back_source.value == "000"
-    assert dut.pc_source.value == "00"
+    assert dut.pc_source.value == "000"
 
 @cocotb.test()
 async def csrrw_control_test(dut):
@@ -300,4 +328,97 @@ async def csrrwi_control_test(dut):
     assert dut.csr_write_enable.value == "1"
     assert dut.csr_write_back_source.value == "1" # func3[2]=1 -> immediate
     assert dut.write_back_source.value == "100"
+
+
+# EXCEPTION / TRAP DETECTION
+# `exception` defaults to ~i_cache_stall and is ruled out for legal encodings, so every
+# test below drives i_cache_stall = 0 and the exception_target_addr struct.
+
+@cocotb.test()
+async def illegal_instruction_control_test(dut):
+    await set_unknown(dut)
+    # TEST ILLEGAL-INSTRUCTION DETECTION: an unknown opcode traps as illegal.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = 0b0000000 # not a valid RV32I opcode
+    dut.func3.value = 0b000
+    dut.func7.value = 0b0000000
+    dut.instruction.value = 0x00000000
+    set_exception_target_addr(dut, 0, 0)
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_ILLEGAL_INSTR
+
+@cocotb.test()
+async def ecall_control_test(dut):
+    await set_unknown(dut)
+    # TEST ECALL: legal SYSTEM instruction that deliberately traps as an M-mode ecall.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = OPCODE_CSR
+    dut.func3.value = 0b000
+    dut.instruction.value = ECALL
+    set_exception_target_addr(dut, 0, 0)
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_ECALL_M
+    assert dut.mret.value == "0"
+
+@cocotb.test()
+async def ebreak_control_test(dut):
+    await set_unknown(dut)
+    # TEST EBREAK: legal SYSTEM instruction that deliberately traps as a breakpoint.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = OPCODE_CSR
+    dut.func3.value = 0b000
+    dut.instruction.value = EBREAK
+    set_exception_target_addr(dut, 0, 0)
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_BREAKPOINT
+
+@cocotb.test()
+async def mret_control_test(dut):
+    await set_unknown(dut)
+    # TEST MRET: a legal SYSTEM instruction (no exception), asserts mret.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = OPCODE_CSR
+    dut.func3.value = 0b000
+    dut.instruction.value = MRET
+    set_exception_target_addr(dut, 0, 0)
+    await Timer(1, units="ns")
+    assert dut.mret.value == "1"
+    assert dut.exception.value == "0"
+
+@cocotb.test()
+async def misaligned_ls_control_test(dut):
+    await set_unknown(dut)
+    # TEST LOAD/STORE ADDRESS MISALIGNMENT (checked against alu_addr).
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+
+    # LW with an aligned effective address: legal, no exception. This doubles as
+    # the "a legal instruction rules out the default illegal exception" check.
+    dut.op.value = OPCODE_I_TYPE_LOAD
+    dut.func3.value = 0b010 # LW (word)
+    dut.instruction.value = 0x00000000
+    set_exception_target_addr(dut, 0, 0x00000004) # aligned
+    await Timer(1, units="ns")
+    assert dut.exception.value == "0"
+
+    # Same LW to a misaligned address: load-address-misaligned exception.
+    set_exception_target_addr(dut, 0, 0x00000002) # word access, addr % 4 != 0
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_LOAD_ADDR_MISALIGNED
+
+    # SW to a misaligned address: store-address-misaligned exception.
+    dut.op.value = OPCODE_S_TYPE
+    dut.func3.value = 0b010 # SW (word)
+    set_exception_target_addr(dut, 0, 0x00000002)
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_STORE_ADDR_MISALIGNED
 

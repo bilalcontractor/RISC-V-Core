@@ -28,10 +28,27 @@ from cocotb.triggers import RisingEdge
 from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 from sim_common import (
-    CPU_PERIOD, AXI_PERIOD, MEM_BYTES, SENDING_WRITE_REQUEST,
+    CPU_PERIOD, MEM_BYTES, SENDING_WRITE_REQUEST,
     binary_to_hex, read_cache,
-    settle, wait_fetch, tick, init_memory, cpu_reset,
+    settle, wait_fetch, tick, init_memory, cpu_reset, step_over_trap,
 )
+
+IMEM_HEX = "./test_imemory.hex"
+
+# The trap handler occupies the last TRAP_HANDLER_WORDS words of the image. Its address is
+# derived, not hard-coded, so growing the program cannot leave mtvec pointing into it.
+TRAP_HANDLER_WORDS = 4
+
+# Exception causes (mcause[30:0]) reported by the CPU at a trap.
+EXC_STORE_ADDR_MISALIGNED = 6
+
+
+def trap_handler_addr(hexfile=IMEM_HEX):
+    # Count image words the way init_memory loads them: one per non-empty line,
+    # ignoring "//" comments.
+    with open(hexfile, "r") as fd:
+        words = sum(1 for line in fd if line.split("//")[0].strip())
+    return (words - TRAP_HANDLER_WORDS) * 4
 
 
 async def test_data_base(dut):
@@ -417,13 +434,27 @@ async def test_jalr(dut):
 
 
 async def test_sb(dut):
-    # sw x8 0x1(x0) : misaligned -> no write ; sb x8 0x6(x3) : byte EE into lane 2
+    # sw x8 0x1(x0) : misaligned -> store-address-misaligned TRAP ; sb x8 0x6(x3) : byte EE
     print("\n\nTESTING SB\n\n")
     assert binary_to_hex(dut.cpu_system.instruction.value) == "008020A3"
 
-    await tick(dut)  # sw x8 0x1(x0) : misaligned word store, byte_enable 0 -> no write
-    # word index 1 = data @ 0x1004, still its reset value
+    # First trap the walk hits: check the datapath end-to-end here (control -> csrfile).
+    # Exhaustive cause/mtval coverage lives in the control and csrfile unit tests.
+    await settle()
+    faulting_pc = binary_to_hex(dut.cpu_system.pc.value)
+    assert dut.cpu_system.exception.value == 1
+    assert dut.cpu_system.trap.value == 1
+    assert int(dut.cpu_system.exception_cause.value) == EXC_STORE_ADDR_MISALIGNED
+
+    await tick(dut)  # sw x8 0x1(x0) : store suppressed, fetch redirected to mtvec
+    # The trap edge latched the faulting PC into mepc and the store-misalign cause
+    # into mcause (mcause[31] == 0 marks an exception rather than an interrupt).
+    assert binary_to_hex(dut.cpu_system.csr_file.mepc.value) == faulting_pc
+    assert int(dut.cpu_system.csr_file.mcause.value) == EXC_STORE_ADDR_MISALIGNED
+    # word index 1 = data @ 0x1004, still its reset value (the store never committed)
     assert read_cache(dut.cpu_system.data_cache.cache_data, 1) == 0x00000000
+
+    await step_over_trap(dut)  # handler mret's back to the instruction after the sw
     assert binary_to_hex(dut.cpu_system.instruction.value) == "00818323"
 
     await tick(dut)  # sb x8 0x6(x3) : low byte EE -> byte lane 2 of word @ 0x1004
@@ -435,10 +466,12 @@ async def test_sh(dut):
     print("\n\nTESTING SH\n\n")
     assert binary_to_hex(dut.cpu_system.instruction.value) == "008010A3"
 
-    await tick(dut)  # sh x8 1(x0) : misaligned -> no write
+    await tick(dut)  # sh x8 1(x0) : misaligned -> store suppressed, trap
+    await step_over_trap(dut)
     assert read_cache(dut.cpu_system.data_cache.cache_data, 1) == 0x00EE0000
 
-    await tick(dut)  # sh x8 3(x0) : misaligned -> no write
+    await tick(dut)  # sh x8 3(x0) : misaligned -> store suppressed, trap
+    await step_over_trap(dut)
     assert read_cache(dut.cpu_system.data_cache.cache_data, 1) == 0x00EE0000
 
     await tick(dut)  # sh x8 6(x3) : upper half of word @ 0x1004 <= FFEE
@@ -455,7 +488,8 @@ async def test_loads(dut):
     assert binary_to_hex(dut.cpu_system.regfile.registers[7].value) == "00001010"
 
     assert binary_to_hex(dut.cpu_system.regfile.registers[18].value) == "FFF8FF00"
-    await tick(dut)  # lw x18 -1(x7) : misaligned word -> reg write squashed
+    await tick(dut)  # lw x18 -1(x7) : misaligned word -> reg write squashed, trap
+    await step_over_trap(dut)
     assert binary_to_hex(dut.cpu_system.regfile.registers[18].value) == "FFF8FF00"
 
     await tick(dut)  # lb x18 -1(x7) : byte @ 0x100F = DE, sign-extended
@@ -464,13 +498,15 @@ async def test_loads(dut):
     await tick(dut)  # lbu x19 -3(x7) : byte @ 0x100D = BE, zero-extended
     assert binary_to_hex(dut.cpu_system.regfile.registers[19].value) == "000000BE"
 
-    await tick(dut)  # lh x20 -3(x7) : misaligned half -> reg write squashed
+    await tick(dut)  # lh x20 -3(x7) : misaligned half -> reg write squashed, trap
+    await step_over_trap(dut)
     assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "0FFFFEEF"
 
     await tick(dut)  # lh x20 -6(x7) : half @ 0x100A = DEAD, sign-extended
     assert binary_to_hex(dut.cpu_system.regfile.registers[20].value) == "FFFFDEAD"
 
-    await tick(dut)  # lhu x21 -3(x7) : misaligned half -> reg write squashed
+    await tick(dut)  # lhu x21 -3(x7) : misaligned half -> reg write squashed, trap
+    await step_over_trap(dut)
     assert binary_to_hex(dut.cpu_system.regfile.registers[21].value) == "FFFFFFEE"
 
     await tick(dut)  # lhu x21 -6(x7) : half @ 0x100A = DEAD, zero-extended
@@ -596,8 +632,8 @@ async def test_mmio(dut, axi_lite_ram):
 @cocotb.test()
 async def cpu_insrt_test(dut):
     """Walk the full instruction datapath against an AXI-attached unified memory."""
+   
     cocotb.start_soon(Clock(dut.clk, CPU_PERIOD, units="ns").start())
-    cocotb.start_soon(Clock(dut.clk, AXI_PERIOD, units="ns").start())
 
     # An AxiRam plays main memory on the CPU's flat m_axi bus. rst_n is active-low,
     # hence reset_active_level=False.
@@ -610,11 +646,14 @@ async def cpu_insrt_test(dut):
     await cpu_reset(dut)
 
     # Program the unified memory: code at 0x0000, data at 0x1000.
-    await init_memory(axi_ram, "./test_imemory.hex", 0x0000)
+    await init_memory(axi_ram, IMEM_HEX, 0x0000)
     await init_memory(axi_ram, "./test_dmemory.hex", 0x1000)
 
     # Land on the first fetched instruction (the initial fetch misses and refills).
     await wait_fetch(dut)
+
+    dut.cpu_system.csr_file.mtvec.value = trap_handler_addr()
+    await settle()
 
     await test_data_base(dut)
     await test_lw(dut)
