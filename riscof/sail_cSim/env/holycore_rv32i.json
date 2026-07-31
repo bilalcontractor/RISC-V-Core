@@ -1,0 +1,15 @@
+{
+  "//": "Config override so the sail golden model matches HolyCore's declared ISA",
+  "//2": "(RV32IZicsr, see riscof_core/core_isa.yaml). Sail's default RV32 config",
+  "//3": "enables the compressed extension; with C on, the reference decodes the",
+  "//4": "RVTEST alignment fillers (0x0001 = c.nop) as valid 2-byte instructions,",
+  "//5": "while a pure RV32I core correctly takes an illegal-instruction trap on the",
+  "//6": "32-bit fetch. Disabling the compressed sub-extensions makes the golden",
+  "//7": "model agree with the RTL on every test that contains those fillers.",
+  "extensions": {
+    "Zca": { "supported": false },
+    "Zcb": { "supported": false },
+    "Zcd": { "supported": false },
+    "Zcf": { "supported": false }
+  }
+}
