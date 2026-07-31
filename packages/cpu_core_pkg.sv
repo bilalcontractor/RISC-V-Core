@@ -124,6 +124,7 @@ package cpu_core_pkg;
         CSR_MSTATUS             = 12'h300,  // machine status
         CSR_MIE                 = 12'h304,  // machine interrupt-enable
         CSR_MTVEC               = 12'h305,  // machine trap-vector base address
+        CSR_MSCRATCH            = 12'h340,  // machine scratch register (free for handler use)
         CSR_MEPC                = 12'h341,  // machine exception program counter
         CSR_MCAUSE              = 12'h342,  // machine trap cause
         CSR_MTVAL               = 12'h343,  // machine trap value (address/instruction)

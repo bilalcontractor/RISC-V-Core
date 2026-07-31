@@ -56,13 +56,14 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] mie, next_mie;         // MACHINE INTERRUPT ENABLE: per-source enable mask (timer/soft/ext)
     logic [31:0] mip, next_mip;         // MACHINE INTERRUPT PENDING: per-source pending flags (timer/soft/ext)
     logic [31:0] mtvec, next_mtvec;     // MACHINE TRAP VECTOR: base address the PC jumps to on a trap
+    logic [31:0] mscratch, next_mscratch; // MACHINE SCRATCH: plain scratch word, no hardware side effects
     logic [31:0] mepc, next_mepc;       // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
     logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
     logic [31:0] mtval, next_mtval;     // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
     logic trap_taken;
 
     // mret only retires when the pipeline can actually redirect, so its CSR side
-    // effects (mstatus restore, trap_taken clear) are gated on ~stall
+    // effect (mstatus restore) is gated on ~stall
     logic mret_commit;
     assign mret_commit = mret & ~stall;
 
@@ -85,10 +86,11 @@ module csrfile import cpu_core_pkg::*; (
             mie <= 32'd0;
             mip <= 32'd0;
             mtvec <= 32'd0;
+            mscratch <= 32'd0;
             mepc <= 32'd0;
             mcause <= 32'd0;
             mtval <= 32'd0;
-            
+
             trap_taken <= 1'b0;
         end
         else begin
@@ -101,13 +103,15 @@ module csrfile import cpu_core_pkg::*; (
             mie <= next_mie;
             mip <= next_mip;
             mtvec <= next_mtvec;
+            mscratch <= next_mscratch;
             mepc <= next_mepc;
             mcause <= next_mcause;
             mtval <= next_mtval;
 
-            trap_taken <= trap_taken;
+            // One-shot mask: stops the same fault re-trapping over mepc/mcause. Re-arms on
+            // the next unstalled edge, NOT on mret -- a handler that never MRETs would wedge it.
             if (trap) trap_taken <= 1'b1;
-            else if (mret_commit) trap_taken <= 1'b0;
+            else if (~stall) trap_taken <= 1'b0;
         end
     end
 
@@ -155,6 +159,16 @@ module csrfile import cpu_core_pkg::*; (
         */
         next_mip = (32'(software_interrupt) << IRQ_SOFT) | (32'(timer_interrupt) << IRQ_TIMER)
             | (32'(external_interrupt) << IRQ_EXT);
+
+        // mscratch
+        // Software-only register: the spec gives it no hardware behaviour, so a CSR
+        // write is its only source of change. The arch-test trap trampoline uses it
+        // as the pointer to its register save area (csrrw sp, mscratch, sp), which is
+        // why a handler cannot run without it.
+        next_mscratch = mscratch;
+        if (write_enable & (address == CSR_MSCRATCH)) begin
+            next_mscratch = write_back_to_csr;
+        end
 
         // mepc
         next_mepc = mepc;
@@ -243,6 +257,7 @@ module csrfile import cpu_core_pkg::*; (
             CSR_MIE:     read_data = mie;
             CSR_MIP:     read_data = mip;
             CSR_MTVEC:   read_data = mtvec;
+            CSR_MSCRATCH: read_data = mscratch;
             CSR_MEPC:    read_data = mepc;
             CSR_MCAUSE:  read_data = mcause;
             CSR_MTVAL:   read_data = mtval;
@@ -251,23 +266,15 @@ module csrfile import cpu_core_pkg::*; (
         endcase
     end
 
-    logic [31:0] or_result;
-    logic [31:0] nand_result;
-
-    always_comb begin
-        or_result   = write_data | read_data;    // CSRRS: set the bits high in write_data
-        nand_result = read_data & (~write_data);  // CSRRC: clear the bits set in write_data
-    end
-
     // Pick the candidate that matches the instruction's func3 (low bits select op,
     // high bit only distinguishes register vs immediate forms, same op either way).
     always_comb begin
         case (func3)
             3'b001, 3'b101: write_back_to_csr = write_data;   // CSRRW: overwrite
 
-            3'b010, 3'b110: write_back_to_csr = or_result;    // CSRRS: set bits
+            3'b010, 3'b110: write_back_to_csr = write_data | read_data;    // CSRRS: set bits
 
-            3'b011, 3'b111: write_back_to_csr = nand_result;  // CSRRC: clear bits
+            3'b011, 3'b111: write_back_to_csr = read_data & (~write_data);  // CSRRC: clear bits
 
             default: write_back_to_csr = 32'd0;               // func3 000/100: no CSR op
         endcase
