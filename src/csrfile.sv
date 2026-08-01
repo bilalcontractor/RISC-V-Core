@@ -52,14 +52,14 @@ module csrfile import cpu_core_pkg::*; (
     logic [31:0] write_back_to_csr; // value the addressed CSR would take
 
     // Trap handling CSRs
-    logic [31:0] mstatus, next_mstatus; // MACHINE STATUS: global interrupt enable + saved state on a trap
-    logic [31:0] mie, next_mie;         // MACHINE INTERRUPT ENABLE: per-source enable mask (timer/soft/ext)
-    logic [31:0] mip, next_mip;         // MACHINE INTERRUPT PENDING: per-source pending flags (timer/soft/ext)
-    logic [31:0] mtvec, next_mtvec;     // MACHINE TRAP VECTOR: base address the PC jumps to on a trap
+    logic [31:0] mstatus, next_mstatus;   // MACHINE STATUS: global interrupt enable + saved state on a trap
+    logic [31:0] mie, next_mie;           // MACHINE INTERRUPT ENABLE: per-source enable mask (timer/soft/ext)
+    logic [31:0] mip, next_mip;           // MACHINE INTERRUPT PENDING: per-source pending flags (timer/soft/ext)
+    logic [31:0] mtvec, next_mtvec;       // MACHINE TRAP VECTOR: base address the PC jumps to on a trap
     logic [31:0] mscratch, next_mscratch; // MACHINE SCRATCH: plain scratch word, no hardware side effects
-    logic [31:0] mepc, next_mepc;       // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
-    logic [31:0] mcause, next_mcause;   // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
-    logic [31:0] mtval, next_mtval;     // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
+    logic [31:0] mepc, next_mepc;         // MACHINE EXCEPTION PC: PC saved on trap entry, restored by mret
+    logic [31:0] mcause, next_mcause;     // MACHINE CAUSE: why the trap fired (interrupt vs exception + code)
+    logic [31:0] mtval, next_mtval;       // MACHINE TRAP VALUE: accompanies mcause, tells which address/instruction involved
     logic trap_taken;
 
     // mret only retires when the pipeline can actually redirect, so its CSR side
@@ -143,7 +143,9 @@ module csrfile import cpu_core_pkg::*; (
         // mtvec
         next_mtvec = mtvec;
         if (write_enable & (address == CSR_MTVEC)) begin
-            next_mtvec = write_back_to_csr;
+            // Bit mask, lower 2 bits set Direct or Vector mode. 
+            // We only implement Direct, so mask bits to force it
+            next_mtvec = {write_back_to_csr[31:2], 2'b00};
         end
 
         // mip
