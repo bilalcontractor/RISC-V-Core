@@ -28,12 +28,12 @@ PREFIX="${PREFIX:-/home/bilal/riscv32i/bin/riscv32-unknown-elf-}"
 # rv32i_zicsr: base ISA our core implements, plus CSR ops (crt0 opens the MMIO
 # window). ilp32 soft-float ABI matches the Route B library build. -nostartfiles
 # because crt0.s provides _start; nosys.specs stubs the syscalls syscalls.c
-# doesn't override; -Os keeps the image inside the 16 KiB map.
+# doesn't override; -Os keeps the image small in the 64 KiB RAM.
 CFLAGS="-march=rv32i_zicsr -mabi=ilp32 -Os -ffreestanding -Wall -ffunction-sections -fdata-sections"
 # nano.specs pulls in newlib-nano (libc_nano): its printf is ~30 KiB smaller than
-# full newlib's, which is what lets the image fit under the 0x2000 UART window.
-# Full newlib overflows the 0x0000-0x2000 code region (see link_c.ld's ASSERT).
-LDFLAGS="-nostartfiles -T runtime/link_c.ld --specs=nano.specs --specs=nosys.specs -Wl,--gc-sections"
+# full newlib's. 
+# -Wl,-Map writes a link map next to the ELF for when the image does get tight.
+LDFLAGS="-nostartfiles -T runtime/link_c.ld --specs=nano.specs --specs=nosys.specs -Wl,--gc-sections -Wl,-Map=$PROG/$NAME.map"
 
 # nosys.specs stubs (_close, _fstat, _isatty, _lseek, _read...) each emit an "is
 # not implemented and will always fail" warning + an "in function"/"does not take
@@ -62,3 +62,13 @@ hexdump -v -e '1/4 "%08x\n"' "$PROG/$NAME.bin" > "$PROG/${NAME}_imemory.hex"
 rm -f "$PROG/$NAME.bin"
 echo "Wrote software/src/${NAME}_imemory.hex ($(wc -l < "$PROG/${NAME}_imemory.hex") words). ELF sections:"
 "${PREFIX}size" "$PROG/$NAME.elf"
+
+# This shows the squeeze coming. _end is where the image (incl .bss)
+# stops, __heap_end is the wall _sbrk refuses to cross (the bottom of the UART
+# window), so their difference is the heap malloc actually has.
+sym() { "${PREFIX}nm" "$PROG/$NAME.elf" | awk -v s="$1" '$3==s {print $1; exit}'; }
+end=$((16#$(sym _end)))
+heap_end=$((16#$(sym __heap_end)))
+stack_top=$((16#$(sym _stack_top)))
+printf 'Image ends 0x%x, heap wall 0x%x, stack top 0x%x -> %d bytes of heap free (%d%% of RAM used)\n' \
+    "$end" "$heap_end" "$stack_top" "$((heap_end - end))" "$((100 * end / stack_top))"

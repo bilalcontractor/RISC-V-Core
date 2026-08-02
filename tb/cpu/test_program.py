@@ -13,7 +13,7 @@
 #     whatever hits the UART, with no signature/pass-fail assertion.
 #
 # Both need the full 4 GiB address space (the RISCOF convention entry point,
-# 0x8000_0000, is well past test_cpu.py's small 16 KiB regression memory map).
+# 0x8000_0000, is well past test_cpu.py's small regression memory map).
 
 import logging
 import os
@@ -25,7 +25,7 @@ from cocotb.triggers import RisingEdge, Timer
 from cocotbext.axi import AxiBus, AxiRam, AxiLiteBus, AxiLiteRam
 
 from sim_common import (
-    CPU_PERIOD, MEM_BYTES,
+    CPU_PERIOD, MEM_BYTES, MMIO_LIMIT,
     cpu_reset, init_memory, wait_fetch, tick, uart_bridge, count_cycles,
 )
 
@@ -160,7 +160,8 @@ async def run_program_test(dut):
     hexfile = os.environ.get("HEX")
     if not hexfile:
         raise RuntimeError(
-            "Set HEX=<path/to/foo_imemory.hex>, e.g. `make run HEX=hello_imemory.hex`"
+            "Set HEX=<program name>, e.g. `make run HEX=hello` "
+            "(a path containing '/' is also accepted)"
         )
     max_cycles = int(os.environ.get("MAX_CYCLES", "20000"))
 
@@ -169,8 +170,12 @@ async def run_program_test(dut):
 
     axi_ram = AxiRam(AxiBus.from_prefix(dut, "m_axi"), dut.clk, dut.rst_n,
                      size=MEM_BYTES, reset_active_level=False)
+    # Must reach past the UART regs at MMIO_BASE+0x10/0x14. This is a separate bus
+    # from axi_ram above, so overlapping their address ranges is fine -- the data
+    # cache picks which one an address goes to. AxiLiteRam is SparseMemory, so the
+    # size is only a bounds check and costs nothing to set generously.
     axi_lite_ram = AxiLiteRam(AxiLiteBus.from_prefix(dut, "m_axi_lite"), dut.clk, dut.rst_n,
-                              size=MEM_BYTES, reset_active_level=False)
+                              size=MMIO_LIMIT, reset_active_level=False)
 
     await cpu_reset(dut)
     await init_memory(axi_ram, hexfile, 0x0000)

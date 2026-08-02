@@ -1,33 +1,34 @@
 # hello.s - prints "Hello, World!" through the simulation UART (sim_uart.sv).
 #
-# This is the single source of truth: edit the instructions OR the string below,
-# rebuild with ./build_asm.sh hello, and run `make run HEX=hello_imemory.hex`
-# (or `make hello` for the assertion-checked regression). The CPU starts at
-# address 0x0 (= _start). Stores to the UART TX register (0x2010) are snooped by
-# sim_uart and printed with $write().
+# The CPU starts at
+# address 0x0 (= _start). Stores to the UART TX register (0x0000E010) are snooped
+# by sim_uart and printed with $write().
+#
+# This links with link.ld, which defines no symbols, so the MMIO addresses are
+# hardcoded here. They must match __mmio_base/__mmio_limit in runtime/link_c.ld.
 #
 # Register usage:
 #   x5  = pointer walking the string
-#   x6  = UART TX register address      (0x2010)
-#   x7  = UART STATUS register address  (0x2014)
+#   x6  = UART TX register address      (0x0000E010)
+#   x7  = UART STATUS register address  (0x0000E014)
 #   x10 = current character
 #   x11 = status scratch
 
     .section .text
     .globl _start
 _start:
-    # --- Open the non-cachable MMIO window 0x2000..0x2200 so UART stores
+    # --- Open the non-cachable MMIO window 0x0000E000..0x0000E200 so UART stores
     #     bypass the data cache and go straight out the AXI-Lite bus. ---
-    lui   x20, 0x2              # x20 = 0x00002000  (base)
-    addi  x21, x20, 0x200       # x21 = 0x00002200  (limit)
-    csrrw x0, 0x7C1, x20        # non_cachable_base  = 0x2000
-    csrrw x0, 0x7C2, x21        # non_cachable_limit = 0x2200
+    lui   x20, 0xE              # x20 = 0x0000E000  (base)
+    addi  x21, x20, 0x200       # x21 = 0x0000E200  (limit)
+    csrrw x0, 0x7C1, x20        # non_cachable_base  = 0x0000E000
+    csrrw x0, 0x7C2, x21        # non_cachable_limit = 0x0000E200
 
     # --- Set up pointers ---
     la    x5, msg               # string pointer (resolved by the assembler)
-    lui   x6, 0x2
-    addi  x6, x6, 0x10          # x6 = 0x2010  (UART TX)
-    addi  x7, x6, 0x4           # x7 = 0x2014  (UART STATUS)
+    lui   x6, 0xE
+    addi  x6, x6, 0x10          # x6 = 0x0000E010  (UART TX)
+    addi  x7, x6, 0x4           # x7 = 0x0000E014  (UART STATUS)
 
 loop:
     lbu   x10, 0(x5)            # load next character

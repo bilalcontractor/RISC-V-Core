@@ -159,7 +159,7 @@ holds the whole-program flows, each skipped unless its env vars are set.
 
 The core runs whole compiled programs and prints to a simulated UART. The UART is a Python
 coroutine (`uart_bridge` in `sim_common.py`) snooping the AXI-Lite MMIO bus. A program opens
-a non-cacheable window via the CSRs and stores characters to the TX register at `0x2010`,
+a non-cacheable window via the CSRs and stores characters to the TX register at `0xE010`,
 and the bridge prints what it sees. All still on the RTL, through cocotb + Verilator.
 
 Programs live in `software/`, separate from the testbenches, but you drive them from

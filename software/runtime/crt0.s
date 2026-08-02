@@ -6,17 +6,20 @@
 #   2. point mtvec at trap_handler so a fault is reported instead of rebooting,
 #   3. set up gp (linker-relaxed globals) and sp (top of RAM),
 #   4. zero .bss (C assumes statics start at 0),
-#   5. call main(), then park in a self-loop so run_program_test detects the end.
+#   5. force stdout unbuffered, then call main(), then park in a self-loop so
+#      run_program_test detects the end.
 
     .section .text.init, "ax"
     .globl _start
 _start:
-    # --- 1. Open the non-cachable window 0x2000..0x2200 (same as hello.s) so
-    #        loads/stores to the UART regs bypass the data cache. ---
-    lui   t0, 0x2              # t0 = 0x00002000  (base)
-    addi  t1, t0, 0x200        # t1 = 0x00002200  (limit)
-    csrw  0x7C1, t0            # non_cachable_base  = 0x2000
-    csrw  0x7C2, t1            # non_cachable_limit = 0x2200
+    # --- 1. Open the non-cachable window (0x0000E000..0x0000E200) so loads and
+    #        stores to the UART regs bypass the data cache. The bounds come from
+    #        link_c.ld, which is also what places the window between the heap and
+    #        the stack, so these two writes never drift from the memory map. ---
+    la    t0, __mmio_base
+    la    t1, __mmio_limit
+    csrw  0x7C1, t0            # non_cachable_base
+    csrw  0x7C2, t1            # non_cachable_limit
 
     # --- 2. Install the trap vector. ---
     # mtvec resets to 0, which is also _start's address, so until this runs any
@@ -48,7 +51,13 @@ bss_clear:
     j     bss_clear
 bss_done:
 
-    # --- 5. main(argc=0, argv=NULL), then park forever on return. ---
+    # --- 5. Runtime init, then main(argc=0, argv=NULL), then park on return. ---
+    # __holycore_init (syscalls.c) forces stdout unbuffered. It MUST run before
+    # the first printf: with a real heap newlib would otherwise buffer stdout,
+    # and since we park below instead of calling exit() nothing would ever be
+    # flushed and every byte of UART output would be lost. 
+
+    call  __holycore_init
     li    a0, 0
     li    a1, 0
     call  main
@@ -94,11 +103,11 @@ trap_park:
 # matching syscalls.c's _write. Clobbers t0/t1; links through t6 so callers
 # keep their own ra.
 trap_putc:
-    li    t0, 0x2014           # UART_STATUS
+    li    t0, 0x0000E014       # UART_STATUS
 1:  lw    t1, 0(t0)
     andi  t1, t1, 0x8          # UART_TX_BUSY
     bnez  t1, 1b
-    li    t0, 0x2010           # UART_TX
+    li    t0, 0x0000E010       # UART_TX
     sw    a0, 0(t0)
     jr    t6
 
