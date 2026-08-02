@@ -27,10 +27,12 @@ TOPLEVEL = test_harness
 # env vars are set, so a plain `make` only runs cpu_insrt_test).
 MODULE = test_cpu,test_program
 
-# Enable Waveforms (Trace)
-# Verilator is fast but lazy; it won't create waveforms unless we force it.
-# This creates a .vcd file you can open in GTKWave.
+# Waveforms (Trace), off by default.
+#   make TRACE=1 ...        -> writes dump.vcd for GTKWave
+TRACE ?= 0
+ifeq ($(TRACE),1)
 EXTRA_ARGS += --trace --trace-structs
+endif
 
 # RISCOF signature-test inputs (test_program.py's riscof_signature_test).
 # Left unset for a plain `make`: exporting an unset var still puts an empty
