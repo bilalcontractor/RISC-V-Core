@@ -1,4 +1,4 @@
-# HolyCore
+# RISC-V Core
 
 A single-cycle RISC-V (RV32I) CPU written from scratch in SystemVerilog, following the
 [HolyCore course](https://github.com/0BAB1/HOLY_CORE_COURSE). Every module has its own

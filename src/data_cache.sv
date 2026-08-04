@@ -88,7 +88,7 @@ module data_cache import cpu_core_pkg::*; #(
     // Cache Logic --> FSM
     cache_state_type state, next_state;
 
-    always_ff @(posedge clk) begin // We actually write or refresh the cache here
+    always_ff @(posedge clk) begin : cache_data_update // We actually write or refresh the cache here
         if (~rst_n) begin
             is_cache_valid <= '0; // invalidate every set
             is_cache_dirty <= '0;
@@ -133,7 +133,7 @@ module data_cache import cpu_core_pkg::*; #(
     logic actual_write_enable;
     assign actual_write_enable = write_enable & |byte_enable;
 
-    always_ff @(posedge aclk) begin // AXI clock driven seq logic
+    always_ff @(posedge aclk) begin : axi_fsm_registers // AXI clock driven seq logic
         if (~rst_n) begin
             state <= IDLE;
             set_ptr <= '0;
@@ -145,7 +145,7 @@ module data_cache import cpu_core_pkg::*; #(
     end
 
     // FSM to determine each stage of FSM, different cases
-    always_comb begin
+    always_comb begin : cache_fsm_next_state
         // defaults
         next_state = state;
         is_next_cache_valid = is_cache_valid;

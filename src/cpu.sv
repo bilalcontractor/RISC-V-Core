@@ -24,7 +24,7 @@ module cpu import cpu_core_pkg::*; (
     logic [31:0] jalr_target;
     assign jalr_target = {alu_result[31:1], 1'b0};
 
-    always_comb begin
+    always_comb begin : pc_source_mux
         case(pc_source)
             PC_PLUS_4:     pc_next = pc_plus_four;
             PC_TARGET:     pc_next = pc_target; // a jump
@@ -35,14 +35,14 @@ module cpu import cpu_core_pkg::*; (
         endcase
     end
 
-    always_comb begin
+    always_comb begin : second_adder_mux
         case(second_add_source) 
             1'b0: pc_target = pc + immediate;
             1'b1: pc_target = immediate;
         endcase
     end
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk) begin : pc_register
         if (rst_n == 0) begin
             pc <= 32'b0;
         end else if (~global_stall) begin
@@ -155,7 +155,7 @@ module cpu import cpu_core_pkg::*; (
     // Pick the value (and its validity) written back to the destination register.
     logic wb_valid;
     logic [31:0] write_back_data;
-    always_comb begin
+    always_comb begin : write_back_mux
         case (write_back_source)
             // ALU result -> R-type ops (add, and, slt...) and I-type ALU ops (addi, ori...)
             WB_ALU_RESULT: begin
@@ -222,7 +222,7 @@ module cpu import cpu_core_pkg::*; (
     logic [31:0] alu_result;
     logic [31:0] alu_source2;
 
-    always_comb begin
+    always_comb begin : alu_source_mux
         case (alu_source)
             1'b1: alu_source2 = immediate;
             default: alu_source2 = read_reg2;
@@ -250,7 +250,7 @@ module cpu import cpu_core_pkg::*; (
 
     // Pick the CSR write source: register form uses rs1, immediate form uses the
     // zero-extended zimm (signext already produces it as `immediate` for CSR ops).
-    always_comb begin
+    always_comb begin : csr_write_data_mux
         case (csr_write_back_source)
             1'b0: csr_write_data = read_reg1;  // csrrw / csrrs / csrrc
             1'b1: csr_write_data = immediate;  // csrrwi / csrrsi / csrrci

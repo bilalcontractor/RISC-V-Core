@@ -16,7 +16,7 @@ module regfile (
     // 32 bit register. Each addressed with 5 bits
     logic [31:0] registers [0:31];
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk) begin : register_write_port
         if (!rst_n) begin
             for (int i = 0; i < 32; i++) begin
                 registers[i] <= 32'b0;

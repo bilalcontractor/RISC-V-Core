@@ -12,7 +12,7 @@ module alu import cpu_core_pkg::*; (
     assign alu_last = alu_result[0]; // last bit of result
     assign zero = (alu_result == 32'b0);
 
-    always_comb begin
+    always_comb begin : alu_operation
         case(alu_control)
             ALU_ADD:  alu_result = src1 + src2; // ADD
             ALU_AND:  alu_result = src1 & src2; // AND

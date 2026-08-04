@@ -19,7 +19,7 @@ module reader import cpu_core_pkg::*; (
 
     logic [31:0] raw_data; // selected byte/half shifted down to bit 0, upper bits masked to 0
 
-    always_comb begin
+    always_comb begin : load_extract_extend
         raw_data = 32'b0;
         write_back_data = 32'b0;
         // the decoder already zeroes byte_enable for misaligned accesses,

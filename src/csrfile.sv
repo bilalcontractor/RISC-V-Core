@@ -75,7 +75,7 @@ module csrfile import cpu_core_pkg::*; (
     logic take_interrupt;
     assign take_interrupt = (|active_interrupts) && mstatus[MSTATUS_MIE];
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk) begin : csr_registers
         if (~rst_n) begin
             flush_cache <= 32'd0; 
             non_cachable_base <= 32'd0;
@@ -116,7 +116,7 @@ module csrfile import cpu_core_pkg::*; (
     end
 
     // Trap CSR logic
-    always_comb begin
+    always_comb begin : trap_csr_next_state
         /* 
            mstatus
            bit 3 = MIE -> MACHINE INTERRUPT ENABLE
@@ -220,7 +220,7 @@ module csrfile import cpu_core_pkg::*; (
     end
 
     // Next-state logic for the flush-cache CSR.
-    always_comb begin
+    always_comb begin : flush_cache_next_state
         // Self-clear: once the flag has pulsed, drop it back to 0 the next cycle so
         // the cache only ever sees a single-cycle flush request.
         if (flush_cache_flag) begin
@@ -236,7 +236,7 @@ module csrfile import cpu_core_pkg::*; (
     end
 
     // logic for the cachable base and limit CSR
-    always_comb begin
+    always_comb begin : non_cachable_range_next_state
         next_non_cachable_base = non_cachable_base;
         if (write_enable & (address == CSR_NON_CACHABLE_BASE)) begin
             next_non_cachable_base = write_back_to_csr;
@@ -249,7 +249,7 @@ module csrfile import cpu_core_pkg::*; (
     end
 
     // Read mux: drive read_data with the addressed CSR, or 0 if the address is unmapped.
-    always_comb begin
+    always_comb begin : csr_read_mux
         case (address)
             CSR_FLUSH_CACHE: read_data = flush_cache;
             CSR_NON_CACHABLE_BASE: read_data = non_cachable_base;
@@ -270,7 +270,7 @@ module csrfile import cpu_core_pkg::*; (
 
     // Pick the candidate that matches the instruction's func3 (low bits select op,
     // high bit only distinguishes register vs immediate forms, same op either way).
-    always_comb begin
+    always_comb begin : csr_write_data_select
         case (func3)
             3'b001, 3'b101: write_back_to_csr = write_data;   // CSRRW: overwrite
 

@@ -34,7 +34,7 @@ module control import cpu_core_pkg::*; (
     logic jump;            // static: unconditional jump (jal)
     logic jalr;
     logic assert_branch;   // dynamic: the branch condition currently holds
-    always_comb begin
+    always_comb begin : main_decoder
         // defaults so every signal is driven on every path (no latches)
         reg_write = 1'b0;
         imm_source = IMM_I_TYPE;
@@ -192,7 +192,7 @@ module control import cpu_core_pkg::*; (
     assign instr_target_misaligned = (exception_target_addr.second_adder_addr % 4 != 0);
 
     // Determine validity of instructions -> illegal-instruction detection + misalignment.
-    always_comb begin
+    always_comb begin : instruction_validity_decoder
         exception       = ~i_cache_stall;
         exception_cause = EXC_ILLEGAL_INSTR;
 
@@ -324,7 +324,7 @@ module control import cpu_core_pkg::*; (
     end
 
     // ALU Decoder
-    always_comb begin
+    always_comb begin : alu_decoder
         case(alu_op)
             // LW, SW
             ALU_OP_LOAD_STORE: alu_control = ALU_ADD;
@@ -364,7 +364,7 @@ module control import cpu_core_pkg::*; (
     end
 
     // Branch resolution: is the branch condition satisfied given the ALU flags?
-    always_comb begin
+    always_comb begin : branch_resolution
         case (func3)
             FUNC3_BEQ:  assert_branch = alu_zero;   // beq
             FUNC3_BNE:  assert_branch = ~alu_zero;  // bne
@@ -377,7 +377,7 @@ module control import cpu_core_pkg::*; (
     end
 
     //// Redirect the PC only on a real branch whose condition holds, or on a jump(jal/jalr)
-    always_comb begin
+    always_comb begin : pc_source_decoder
         if (trap) pc_source = PC_MTVEC;
 
         else if (mret) pc_source = PC_MEPC;

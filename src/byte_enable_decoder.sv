@@ -10,7 +10,7 @@ module byte_enable_decoder import cpu_core_pkg::*; (
 
     assign offset = alu_result_address[1:0];
 
-    always_comb begin
+    always_comb begin : store_align_decode
         case (func3)
             // SB. only writes the last byte of register(reg_read)
             // 32'h0000000FF acts as bit mask. Same as 0000...0000 1111 1111.

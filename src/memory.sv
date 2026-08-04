@@ -19,12 +19,12 @@ module memory #(
     // essentially a 2D array
     logic [31:0] mem [0:WORDS - 1];
 
-    initial begin 
+    initial begin : mem_init_load 
         $readmemh(mem_init, mem); // load memmory for simulation
     end
 
     // writeing to memory
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk) begin : mem_write_port
         // reset logic
         if (!rst_n) begin
             for (int i = 0; i < WORDS; i++) begin

@@ -7,7 +7,7 @@ module signext import cpu_core_pkg::*; (
     output logic [31:0] immediate
 );
 
-    always_comb begin
+    always_comb begin : immediate_extend
         case (imm_source)
             // For I-Types
             IMM_I_TYPE: immediate = {{20{raw_src[24]}}, raw_src[24:13]};

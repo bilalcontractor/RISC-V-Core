@@ -20,7 +20,7 @@ module cache_arbiter (
 // The request controller simply muxes the transactions until they are done
 // using state info from the caches
 
-always_comb begin
+always_comb begin : bus_arbitration
     // STEP 1 - Safe defaults: assume "no traffic" everywhere.
     // Default values set to 0s
     m_axi.awaddr = 0;
