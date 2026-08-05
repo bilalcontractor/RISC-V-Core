@@ -7,6 +7,8 @@ module control import cpu_core_pkg::*; (
     input  logic trap,
     input  logic [31:0] instruction,
     input  logic i_cache_stall,
+    // From csrfile: instruction[31:20] decodes to an implemented CSR. 
+    input  logic csr_mapped,
     // Candidate faulting addresses used for misalignment detection:
     //   second_adder_addr = instruction-fetch target (branch/jal/jalr)
     //   alu_addr          = load/store effective address
@@ -312,9 +314,12 @@ module control import cpu_core_pkg::*; (
                         end
                         // else: leave as illegal
                     end
-                    // CSRRW/S/C and their immediate variants; func3==100 is illegal
+                    // CSRRW/S/C and their immediate variants; func3==100 is illegal.
+                    // Accessing an unimplemented CSR is an illegal instruction 
+                    // TODO(privilege): once a privilege register exists, also trap when
+                    //   instruction[29:28] (== addr[9:8]) exceeds the current mode.
                     3'b001, 3'b010, 3'b011,
-                    3'b101, 3'b110, 3'b111: exception = 1'b0;
+                    3'b101, 3'b110, 3'b111: exception = ~csr_mapped & ~i_cache_stall;
                     default: ; // func3 == 100 -> illegal
                 endcase
             end

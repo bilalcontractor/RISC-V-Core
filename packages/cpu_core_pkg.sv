@@ -128,8 +128,15 @@ package cpu_core_pkg;
         CSR_MEPC                = 12'h341,  // machine exception program counter
         CSR_MCAUSE              = 12'h342,  // machine trap cause
         CSR_MTVAL               = 12'h343,  // machine trap value (address/instruction)
-        CSR_MIP                 = 12'h344   // machine interrupt-pending
+        CSR_MIP                 = 12'h344,  // machine interrupt-pending
+        CSR_MISA                = 12'h301   // machine ISA (WARL, writes ignored)
     } csr_address_type;
+
+    // misa: MXL=1 (RV32) | extension bit 8 (I). Must match the reset-val declared in
+    // riscof/riscof_core/core_isa.yaml. Bit 7 (H) MUST stay 0: the arch-test M-mode trap
+    // handler (riscv-arch-test/riscv-test-suite/env/arch_test.h:1229) reads misa and
+    // widens its trap-signature entries if H is set.
+    localparam logic [31:0] MISA_VALUE = 32'h4000_0100;
 
     // Exception causes : mcause[31] == 0
     typedef enum logic [30:0] {

@@ -98,6 +98,7 @@ module cpu import cpu_core_pkg::*; (
     logic [30:0] exception_cause; // control -> csrfile: mcause code (interrupt bit excluded)
     logic [31:0] mepc;            // csrfile -> PC mux: saved PC, mret return target
     logic [31:0] mtvec;           // csrfile -> PC mux: trap-vector base, trap entry target
+    logic csr_mapped;             // csrfile -> control: csr_address is an implemented CSR
 
     // The two addresses this instruction could fault on, for control's misalignment checks
     // and csrfile's mtval: the fetch target (branch/jal/jalr) and the load/store address.
@@ -119,6 +120,7 @@ module cpu import cpu_core_pkg::*; (
         .trap(trap),
         .instruction(instruction),
         .i_cache_stall(i_cache_stall),
+        .csr_mapped(csr_mapped),
         .exception_target_addr(exception_target_addr),
         // Out
         .alu_control(alu_control),
@@ -281,6 +283,7 @@ module cpu import cpu_core_pkg::*; (
         .exception(exception),
         .exception_cause(exception_cause),
         .read_data(csr_read_data),
+        .csr_mapped(csr_mapped),
         .flush_cache_flag(flush_cache_flag),
         .non_cachable_base_address(non_cachable_base),
         .non_cachable_limit_address(non_cachable_limit),

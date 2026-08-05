@@ -32,8 +32,7 @@ module memory #(
             end
         end
         else if (write_enable) begin
-            // ensure the address is aligned to a word boundary
-            // if not, we ignore the write
+            // ensure the address is word aligned
             if (address[1:0] == 2'b00) begin
                 // use byte-enable to write bytes
                 for (int i = 0; i < 4; i++) begin

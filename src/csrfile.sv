@@ -25,6 +25,7 @@ module csrfile import cpu_core_pkg::*; (
     input logic [30:0] exception_cause, 
 
     output logic [31:0] read_data,  // current value of the addressed CSR (0 if unmapped)
+    output logic csr_mapped,        // Checks if CSR address is implemented or not
 
     // CSR flags
     output logic flush_cache_flag,   // 1-cycle pulse telling the cache to flush
@@ -249,13 +250,16 @@ module csrfile import cpu_core_pkg::*; (
     end
 
     // Read mux: drive read_data with the addressed CSR, or 0 if the address is unmapped.
+    // csr_mapped defaults high and is cleared only by the default 
     always_comb begin : csr_read_mux
+        csr_mapped = 1'b1;
         case (address)
             CSR_FLUSH_CACHE: read_data = flush_cache;
             CSR_NON_CACHABLE_BASE: read_data = non_cachable_base;
             CSR_NON_CACHABLE_LIMIT: read_data = non_cachable_limit;
 
             CSR_MSTATUS: read_data = mstatus;
+            CSR_MISA:    read_data = MISA_VALUE; //Hardwired. MISA is read only(WARL)
             CSR_MIE:     read_data = mie;
             CSR_MIP:     read_data = mip;
             CSR_MTVEC:   read_data = mtvec;
@@ -264,7 +268,10 @@ module csrfile import cpu_core_pkg::*; (
             CSR_MCAUSE:  read_data = mcause;
             CSR_MTVAL:   read_data = mtval;
 
-            default: read_data = 32'd0;
+            default: begin
+                read_data  = 32'd0;
+                csr_mapped = 1'b0;
+            end
         endcase
     end
 
