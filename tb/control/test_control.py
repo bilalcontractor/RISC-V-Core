@@ -41,6 +41,10 @@ async def set_unknown(dut):
     # dut.func7.value = LogicArray("XXXXXXX")
     # dut.alu_zero.value = LogicArray("X")
     # dut.alu_last_bit.value = LogicArray("X")
+    # Defined baseline for the CSR-legality inputs so no test reads X. csr_mapped
+    # defaults low (unimplemented CSR); tests exercising a legal CSR op raise it.
+    dut.instruction.value = 0
+    dut.csr_mapped.value = 0
     await Timer(1, units="ns")
 
 @cocotb.test()
@@ -309,6 +313,7 @@ async def csrrw_control_test(dut):
     await Timer(10, units="ns")
     dut.op.value = 0b1110011 # SYSTEM / CSR
     dut.func3.value = 0b001 # csrrw
+    dut.csr_mapped.value = 1 # targeting an implemented CSR
     await Timer(1, units="ns")
     assert dut.imm_source.value == "101"
     assert dut.mem_write.value == "0"
@@ -324,6 +329,7 @@ async def csrrwi_control_test(dut):
     await Timer(10, units="ns")
     dut.op.value = 0b1110011 # SYSTEM / CSR
     dut.func3.value = 0b101 # csrrwi
+    dut.csr_mapped.value = 1 # targeting an implemented CSR
     await Timer(1, units="ns")
     assert dut.csr_write_enable.value == "1"
     assert dut.csr_write_back_source.value == "1" # func3[2]=1 -> immediate
@@ -421,4 +427,35 @@ async def misaligned_ls_control_test(dut):
     await Timer(1, units="ns")
     assert dut.exception.value == "1"
     assert int(dut.exception_cause.value) == EXC_STORE_ADDR_MISALIGNED
+
+@cocotb.test()
+async def csr_unmapped_illegal_control_test(dut):
+    await set_unknown(dut)
+    # TEST UNIMPLEMENTED CSR: accessing an address csrfile does not decode is illegal.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = OPCODE_CSR
+    dut.func3.value = 0b010 # csrrs
+    dut.instruction.value = 0xC0002D73 # csrrs x26, 0xC00, x0 -> cycle, not implemented
+    dut.csr_mapped.value = 0
+    set_exception_target_addr(dut, 0, 0)
+    await Timer(1, units="ns")
+    assert dut.exception.value == "1"
+    assert int(dut.exception_cause.value) == EXC_ILLEGAL_INSTR
+
+@cocotb.test()
+async def csr_mapped_legal_control_test(dut):
+    await set_unknown(dut)
+    # TEST IMPLEMENTED CSR: all six CSR func3 encodings are legal when the address decodes.
+    await Timer(10, units="ns")
+    dut.i_cache_stall.value = 0
+    dut.op.value = OPCODE_CSR
+    dut.instruction.value = 0x340092F3 # csrrw x5, mscratch, x1
+    dut.csr_mapped.value = 1
+    set_exception_target_addr(dut, 0, 0)
+    for func3 in (0b001, 0b010, 0b011, 0b101, 0b110, 0b111):
+        dut.func3.value = func3
+        await Timer(1, units="ns")
+        assert dut.exception.value == "0", f"mapped CSR op func3={func3:03b} wrongly trapped"
+        assert dut.csr_write_enable.value == "1"
 

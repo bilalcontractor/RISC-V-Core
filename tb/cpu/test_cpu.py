@@ -40,7 +40,11 @@ IMEM_HEX = "./test_imemory.hex"
 TRAP_HANDLER_WORDS = 4
 
 # Exception causes (mcause[30:0]) reported by the CPU at a trap.
+EXC_ILLEGAL_INSTR = 2
 EXC_STORE_ADDR_MISALIGNED = 6
+
+# misa reads a hardwired RV32I value: MXL=1 | bit 8 (I). Mirrors MISA_VALUE in cpu_core_pkg.
+MISA_VALUE = "40000100"
 
 
 def trap_handler_addr(hexfile=IMEM_HEX):
@@ -461,6 +465,40 @@ async def test_sb(dut):
     assert read_cache(dut.cpu_system.data_cache.cache_data, 1) == 0x00EE0000
 
 
+async def test_illegal_csr(dut):
+    # csrrs x26 misa x0 : 0x301 is mapped -> legal
+    # csrrs x27 cycle x0 : 0xC00 is not implemented -> illegal-instruction TRAP
+    print("\n\nTESTING ILLEGAL CSR ACCESS\n\n")
+    assert binary_to_hex(dut.cpu_system.instruction.value) == "30102D73"
+
+    # misa must be readable: the arch-test M-mode trap handler reads it on every exception
+    # (riscv-arch-test/riscv-test-suite/env/arch_test.h:1229), so if this trapped, the
+    # handler would fault on itself and every RISCOF privilege test would hang out.
+    await tick(dut)  # csrrs x26 misa x0
+    assert binary_to_hex(dut.cpu_system.regfile.registers[26].value) == MISA_VALUE
+
+    # Unimplemented CSR: csrfile reports ~csr_mapped, control raises illegal-instruction.
+    assert binary_to_hex(dut.cpu_system.instruction.value) == "C0002DF3"
+    await settle()
+    faulting_pc = binary_to_hex(dut.cpu_system.pc.value)
+    faulting_instr = binary_to_hex(dut.cpu_system.instruction.value)
+    x27_before = binary_to_hex(dut.cpu_system.regfile.registers[27].value)
+    assert dut.cpu_system.exception.value == 1
+    assert dut.cpu_system.trap.value == 1
+    assert int(dut.cpu_system.exception_cause.value) == EXC_ILLEGAL_INSTR
+
+    await tick(dut)  # trap entry: fetch redirected to mtvec, rd write suppressed
+    assert binary_to_hex(dut.cpu_system.csr_file.mepc.value) == faulting_pc
+    assert int(dut.cpu_system.csr_file.mcause.value) == EXC_ILLEGAL_INSTR
+    # mtval carries the faulting INSTRUCTION word for an illegal instruction, not an address
+    assert binary_to_hex(dut.cpu_system.csr_file.mtval.value) == faulting_instr
+    # the trapped instruction commits no side effect: rd is not written
+    assert binary_to_hex(dut.cpu_system.regfile.registers[27].value) == x27_before
+
+    await step_over_trap(dut)  # handler mret's back to the instruction after the csrrs
+    assert binary_to_hex(dut.cpu_system.regfile.registers[27].value) == x27_before
+
+
 async def test_sh(dut):
     # sh x8 1(x0), sh x8 3(x0) : misaligned -> no write ; sh x8 6(x3) : half FFEE into lanes 2,3
     print("\n\nTESTING SH\n\n")
@@ -692,3 +730,4 @@ async def cpu_insrt_test(dut):
     await test_loads(dut)
     await test_csr(dut)
     await test_mmio(dut, axi_lite_ram)
+    await test_illegal_csr(dut)

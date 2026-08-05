@@ -101,10 +101,12 @@ ABCD1B37  //                    lui x22 0xABCD1     | x22 <= ABCD1000
 12300C13  //                    addi x24 x0 0x123   | x24 <= 0x00000123
 018A1123  //                    sh x24 2(x20)       | mem @ 0x2006 [15:0] <= 0123
 000A2C83  //                    lw x25 0(x20)       | x25 <= 012311EE
+30102D73  //ILLEGAL CSR TEST:   csrrs x26 misa x0   | x26 <= 40000100 (misa is mapped, legal)
+C0002DF3  //                    csrrs x27 cycle x0  | 0xC00 UNMAPPED -> illegal instr TRAP
 00000013  //NOP
 00000013  //NOP
 00000013  //NOP
-34102FF3  //TRAP HANDLER @ 0x1A8: csrrs x31 mepc x0 | x31 <= mepc (faulting PC)
+34102FF3  //TRAP HANDLER @ 0x1B0: csrrs x31 mepc x0 | x31 <= mepc (faulting PC)
 004F8F93  //                      addi  x31 x31 0x4 | x31 <= faulting PC + 4
 341F9073  //                      csrrw x0  mepc x31 | mepc <= faulting PC + 4
 30200073  //                      mret               | return to faulting PC + 4

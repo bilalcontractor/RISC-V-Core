@@ -15,6 +15,20 @@ CSR_MSCRATCH = 0x340
 CSR_MEPC = 0x341
 CSR_MCAUSE = 0x342
 CSR_MTVAL = 0x343
+CSR_MIP = 0x344
+CSR_MISA = 0x301
+CSR_FLUSH_CACHE = 0x7C0
+CSR_NON_CACHABLE_BASE = 0x7C1
+CSR_NON_CACHABLE_LIMIT = 0x7C2
+
+MAPPED_CSRS = [
+    CSR_FLUSH_CACHE, CSR_NON_CACHABLE_BASE, CSR_NON_CACHABLE_LIMIT,
+    CSR_MSTATUS, CSR_MISA, CSR_MIE, CSR_MIP, CSR_MTVEC,
+    CSR_MSCRATCH, CSR_MEPC, CSR_MCAUSE, CSR_MTVAL,
+]
+
+# misa: MXL=1 (RV32) | bit 8 (I extension). Mirrors MISA_VALUE in cpu_core_pkg.
+MISA_VALUE = 0x40000100
 
 # Exception causes (mcause[30:0] with mcause[31] == 0)
 EXC_INSTR_ADDR_MISALIGNED = 0
@@ -499,3 +513,32 @@ async def test_mtvec_mepc_outputs(dut):
     assert int(dut.mepc_out.value) == 0x0000_ABCC, "mepc_out did not follow mepc after a trap"
     # the trap left mtvec untouched
     assert int(dut.mtvec_out.value) == 0x8000_0100
+
+
+@cocotb.test()
+async def test_csr_mapped_decode(dut):
+    """csr_mapped is 1 for exactly the addresses the read mux decodes, 0 for everything else."""
+    cocotb.start_soon(Clock(dut.clk, 1, unit="ns").start())
+    await reset(dut)
+
+    for addr in MAPPED_CSRS:
+        dut.address.value = addr
+        await Timer(1, unit="ns")
+        assert dut.csr_mapped.value == 1, f"CSR {addr:#05x} is implemented but read csr_mapped=0"
+
+    unmapped = [0x000, 0x001, 0x302, 0x306, 0x7C3, 0xC00, 0xF11, 0xF14, 0xFFF]
+    for addr in unmapped:
+        dut.address.value = addr
+        await Timer(1, unit="ns")
+        assert dut.csr_mapped.value == 0, f"CSR {addr:#05x} is unimplemented but read csr_mapped=1"
+        assert int(dut.read_data.value) == 0, f"unmapped CSR {addr:#05x} must still read 0"
+
+    # csr_mapped must not depend on write_enable: assert a write to an unmapped address and
+    # confirm the flag is unchanged (a dependency here would be the loop-closing bug).
+    dut.address.value = 0xC00
+    dut.write_enable.value = 1
+    dut.write_data.value = 0xDEADBEEF
+    dut.func3.value = 0b001
+    await Timer(1, unit="ns")
+    assert dut.csr_mapped.value == 0, "csr_mapped changed with write_enable -- it must depend on address only"
+    dut.write_enable.value = 0
